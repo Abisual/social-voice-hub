@@ -11,57 +11,30 @@ import { PlusCircle, UserPlus, Users } from 'lucide-react';
 // Изменим тип status на разрешенные значения
 type FriendStatus = "online" | "offline" | "idle" | "dnd";
 
-// Демо-данные друзей с правильной типизацией
-const MOCK_FRIENDS = [
-  {
-    id: 'user1',
-    username: 'TechGuru',
-    tag: '#4253',
-    status: "online" as FriendStatus,
-    avatar: '',
-    isFriend: true,
-  },
-  {
-    id: 'user2',
-    username: 'GameMaster',
-    tag: '#7890',
-    status: "idle" as FriendStatus,
-    avatar: '',
-    isFriend: true,
-  }
-];
+// Реальный список друзей будет пустым - убираем моковые данные
+const MOCK_FRIENDS: {
+  id: string;
+  username: string;
+  tag: string;
+  status: FriendStatus;
+  avatar: string;
+  isFriend: boolean;
+}[] = [];
 
-// Демо-данные для входящих запросов
-const MOCK_REQUESTS = [
-  {
-    id: 'user3',
-    username: 'PixelArtist',
-    tag: '#1122',
-    status: "online" as FriendStatus,
-    avatar: '',
-    isFriend: false,
-  }
-];
+// Пустой список входящих запросов
+const MOCK_REQUESTS: {
+  id: string;
+  username: string;
+  tag: string;
+  status: FriendStatus;
+  avatar: string;
+  isFriend: boolean;
+}[] = [];
 
 const FriendsPage = () => {
   const [activeTab, setActiveTab] = useState('friends');
   const [searchQuery, setSearchQuery] = useState('');
   const { toast } = useToast();
-  
-  const handleAddFriend = (username: string) => {
-    if (!username.includes('#')) {
-      toast({
-        title: 'Invalid format',
-        description: 'Please enter a username with tag (e.g., Friend#1234)',
-      });
-      return;
-    }
-    
-    toast({
-      title: 'Friend request sent!',
-      description: `Your request to ${username} has been sent.`,
-    });
-  };
   
   const filteredFriends = MOCK_FRIENDS.filter(friend => 
     friend.username.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -113,7 +86,7 @@ const FriendsPage = () => {
                 ))
               ) : (
                 <div className="text-center py-8">
-                  <p className="text-muted-foreground">No friends found</p>
+                  <p className="text-muted-foreground">No friends found. Add some friends to see them here.</p>
                 </div>
               )}
             </div>
@@ -122,17 +95,23 @@ const FriendsPage = () => {
           <TabsContent value="pending" className="space-y-4">
             <h2 className="text-lg font-semibold">Friend Requests</h2>
             <div className="grid gap-4">
-              {MOCK_REQUESTS.map(request => (
-                <FriendCard 
-                  key={request.id}
-                  {...request}
-                />
-              ))}
+              {MOCK_REQUESTS.length > 0 ? (
+                MOCK_REQUESTS.map(request => (
+                  <FriendCard 
+                    key={request.id}
+                    {...request}
+                  />
+                ))
+              ) : (
+                <div className="text-center py-8">
+                  <p className="text-muted-foreground">No pending friend requests</p>
+                </div>
+              )}
             </div>
           </TabsContent>
           
           <TabsContent value="add">
-            <AddFriendForm onAddFriend={handleAddFriend} />
+            <AddFriendForm />
           </TabsContent>
         </Tabs>
       </div>
