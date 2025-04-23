@@ -6,7 +6,8 @@ import {
   MicOff,
   MonitorSmartphone,
   Users,
-  Volume2
+  Volume2,
+  PhoneOff
 } from 'lucide-react';
 import { Separator } from '@/components/ui/separator';
 import { useToast } from '@/hooks/use-toast';
@@ -15,7 +16,6 @@ import ScreenShareView from '@/components/voice/ScreenShareView';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 
-// Интерфейс для пользователей голосового чата
 interface VoiceUserType {
   id: string;
   username: string;
@@ -27,7 +27,6 @@ interface VoiceUserType {
   volume: number;
 }
 
-// Текущий пользователь
 const CURRENT_USER: VoiceUserType = {
   id: 'currentUser',
   username: 'You',
@@ -39,7 +38,6 @@ const CURRENT_USER: VoiceUserType = {
 };
 
 const VoicePage = () => {
-  // Управление состоянием участников
   const [voiceUsers, setVoiceUsers] = useState<VoiceUserType[]>([CURRENT_USER]);
   const [isMuted, setIsMuted] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
@@ -56,11 +54,35 @@ const VoicePage = () => {
   
   const { toast } = useToast();
   
-  // Эффект для имитации подключения к голосовому чату
+  const handleDisconnect = () => {
+    if (audioStream) {
+      audioStream.getTracks().forEach(track => track.stop());
+    }
+    if (screenShareStream) {
+      screenShareStream.getTracks().forEach(track => track.stop());
+    }
+    if (animationFrameRef.current) {
+      cancelAnimationFrame(animationFrameRef.current);
+    }
+    if (audioContextRef.current) {
+      audioContextRef.current.close();
+    }
+    
+    setIsConnected(false);
+    setIsConnecting(false);
+    setAudioStream(null);
+    setScreenShareStream(null);
+    setMicrophoneAccess(null);
+    setVoiceUsers([CURRENT_USER]);
+    
+    toast({
+      title: "Отключено от голосового чата",
+    });
+  };
+
   useEffect(() => {
     if (!isConnected && !isConnecting) {
       setIsConnecting(true);
-      // Имитация подключения
       toast({
         title: "Подключение к голосовому чату",
         description: "Пожалуйста, подождите...",
@@ -74,10 +96,8 @@ const VoicePage = () => {
           description: "Вы можете начать общение",
         });
         
-        // Проверяем наличие доступа к микрофону
         checkMicrophoneAccess();
         
-        // Добавляем имитацию других пользователей
         setVoiceUsers([
           CURRENT_USER,
           {
@@ -90,38 +110,20 @@ const VoicePage = () => {
             volume: 80,
           }
         ]);
-        
-        // Имитируем разговор других пользователей
-        startSimulation();
       }, 2000);
     }
     
     return () => {
-      // Очистка при размонтировании
-      if (audioStream) {
-        audioStream.getTracks().forEach(track => track.stop());
-      }
-      if (screenShareStream) {
-        screenShareStream.getTracks().forEach(track => track.stop());
-      }
-      if (animationFrameRef.current) {
-        cancelAnimationFrame(animationFrameRef.current);
-      }
-      if (audioContextRef.current) {
-        audioContextRef.current.close();
-      }
-      setIsConnected(false);
+      handleDisconnect();
     };
-  }, [toast]);
-  
-  // Проверка доступа к микрофону
+  }, []);
+
   const checkMicrophoneAccess = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       setAudioStream(stream);
       setMicrophoneAccess(true);
       
-      // Настройка аудио-анализатора для визуализации микрофона
       const audioContext = new AudioContext();
       audioContextRef.current = audioContext;
       
@@ -132,10 +134,8 @@ const VoicePage = () => {
       const source = audioContext.createMediaStreamSource(stream);
       source.connect(analyser);
       
-      // Начинаем анализировать уровень звука
       analyzeMicrophoneLevel();
       
-      // Обновление состояния для текущего пользователя
       const updatedUser = { ...CURRENT_USER, isMuted: false };
       updateVoiceUser(updatedUser);
       
@@ -147,7 +147,6 @@ const VoicePage = () => {
       console.error('Ошибка доступа к микрофону:', error);
       setMicrophoneAccess(false);
       
-      // Обновление состояния для текущего пользователя
       const updatedUser = { ...CURRENT_USER, isMuted: true };
       updateVoiceUser(updatedUser);
       
@@ -158,8 +157,7 @@ const VoicePage = () => {
       });
     }
   };
-  
-  // Анализ уровня звука с микрофона
+
   const analyzeMicrophoneLevel = () => {
     if (!analyserRef.current) return;
     
@@ -169,17 +167,14 @@ const VoicePage = () => {
     const updateLevel = () => {
       analyser.getByteFrequencyData(dataArray);
       
-      // Получаем среднее значение уровня звука
       const average = dataArray.reduce((acc, val) => acc + val, 0) / dataArray.length;
       const normalizedLevel = Math.min(100, Math.max(0, average * 1.5));
       
       setMicrophoneLevel(normalizedLevel);
       
-      // Определяем, говорит ли пользователь (если громкость выше порога)
       const isSpeakingThreshold = 15;
       const isSpeaking = normalizedLevel > isSpeakingThreshold && !isMuted;
       
-      // Обновляем состояние текущего пользователя
       setVoiceUsers((prevUsers) => 
         prevUsers.map(user => 
           user.id === 'currentUser' 
@@ -193,10 +188,8 @@ const VoicePage = () => {
     
     updateLevel();
   };
-  
-  // Функция для имитации разговора
+
   const startSimulation = () => {
-    // Периодически имитируем разговор пользователей
     const interval = setInterval(() => {
       if (Math.random() > 0.5) {
         setVoiceUsers((prevUsers) => 
@@ -215,8 +208,7 @@ const VoicePage = () => {
     
     return () => clearInterval(interval);
   };
-  
-  // Обновление пользователя в списке
+
   const updateVoiceUser = (updatedUser: VoiceUserType) => {
     setVoiceUsers((prevUsers) =>
       prevUsers.map(user =>
@@ -224,10 +216,8 @@ const VoicePage = () => {
       )
     );
   };
-  
-  // Обработчик включения/выключения микрофона
+
   const handleToggleMute = (userId: string) => {
-    // Пользователь может управлять только своим микрофоном
     if (userId !== 'currentUser') return;
     
     const user = voiceUsers.find(u => u.id === userId);
@@ -235,7 +225,6 @@ const VoicePage = () => {
     
     const newMutedState = !user.isMuted;
     
-    // Обновляем состояние
     updateVoiceUser({
       ...user,
       isMuted: newMutedState,
@@ -244,7 +233,6 @@ const VoicePage = () => {
     
     setIsMuted(newMutedState);
     
-    // Отключаем/включаем треки микрофона
     if (audioStream) {
       audioStream.getAudioTracks().forEach(track => {
         track.enabled = !newMutedState;
@@ -255,10 +243,8 @@ const VoicePage = () => {
       title: newMutedState ? "Микрофон выключен" : "Микрофон включен",
     });
   };
-  
-  // Обработчик локального заглушения пользователя
+
   const handleToggleLocalMute = (userId: string) => {
-    // Нельзя локально заглушить самого себя
     if (userId === 'currentUser') return;
     
     const user = voiceUsers.find(u => u.id === userId);
@@ -277,8 +263,7 @@ const VoicePage = () => {
         : `Звук от ${user.username} включен`,
     });
   };
-  
-  // Обработчик изменения громкости
+
   const handleVolumeChange = (userId: string, volume: number) => {
     const user = voiceUsers.find(u => u.id === userId);
     if (!user) return;
@@ -288,10 +273,8 @@ const VoicePage = () => {
       volume
     });
   };
-  
-  // Обработчик демонстрации экрана
+
   const handleScreenShare = async () => {
-    // Если уже идет демонстрация, останавливаем её
     if (isScreenSharing && screenShareStream) {
       screenShareStream.getTracks().forEach(track => track.stop());
       setScreenShareStream(null);
@@ -322,7 +305,6 @@ const VoicePage = () => {
         description: 'Другие пользователи видят ваш экран',
       });
       
-      // Остановка демонстрации при закрытии доступа к экрану
       stream.getVideoTracks()[0].onended = () => {
         setScreenShareStream(null);
         setIsScreenSharing(false);
@@ -336,12 +318,12 @@ const VoicePage = () => {
       
       toast({
         title: 'Ошибка демонстрации экрана',
-        description: 'Доступ не был предоставлен',
+        description: 'Доступ не был предоста��лен',
         variant: 'destructive',
       });
     }
   };
-  
+
   return (
     <div className="flex flex-col h-full">
       <div className="border-b p-4">
@@ -359,6 +341,17 @@ const VoicePage = () => {
           </div>
           
           <div className="flex gap-2">
+            {isConnected && (
+              <Button
+                variant="destructive"
+                onClick={handleDisconnect}
+                className="gap-2"
+              >
+                <PhoneOff className="h-4 w-4" />
+                <span className="hidden sm:inline">Отключиться</span>
+              </Button>
+            )}
+            
             <Button
               variant={isMuted ? 'destructive' : 'default'}
               onClick={() => handleToggleMute('currentUser')}
@@ -392,7 +385,6 @@ const VoicePage = () => {
           </div>
         </div>
         
-        {/* Индикатор уровня микрофона */}
         {microphoneAccess && !isMuted && (
           <div className="mt-4 px-2">
             <div className="flex items-center gap-2 mb-1">
@@ -410,7 +402,6 @@ const VoicePage = () => {
       </div>
       
       <div className="flex-1 overflow-hidden">
-        {/* Демонстрация экрана */}
         {isScreenSharing && screenShareStream && (
           <div className="p-4 border-b">
             <ScreenShareView stream={screenShareStream} isActive={isScreenSharing} />

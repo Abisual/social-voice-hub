@@ -1,22 +1,27 @@
-
 import React, { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
 import { Avatar } from '@/components/ui/avatar';
+import { Switch } from '@/components/ui/switch';
+import { Slider } from '@/components/ui/slider';
 import { useToast } from '@/hooks/use-toast';
 
 const SettingsPage = () => {
-  const [username, setUsername] = useState('CurrentUser');
+  const [username, setUsername] = useState(() => {
+    return localStorage.getItem('username') || 'CurrentUser';
+  });
   const [email, setEmail] = useState('user@example.com');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [saving, setSaving] = useState(false);
+  const [noiseSuppression, setNoiseSuppression] = useState(false);
+  const [noiseThreshold, setNoiseThreshold] = useState(50);
   
   const { toast } = useToast();
   
-  const handleSave = (e: React.FormEvent) => {
+  const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     
     if (password && password !== confirmPassword) {
@@ -30,16 +35,31 @@ const SettingsPage = () => {
     
     setSaving(true);
     
-    // Simulate API call
-    setTimeout(() => {
+    try {
+      // Save username to localStorage
+      localStorage.setItem('username', username);
+      
+      // Save noise suppression settings
+      localStorage.setItem('noiseSuppression', JSON.stringify({
+        enabled: noiseSuppression,
+        threshold: noiseThreshold
+      }));
+      
       toast({
         title: 'Settings saved',
         description: 'Your profile has been updated successfully',
       });
+    } catch (error) {
+      toast({
+        title: 'Error saving settings',
+        description: 'Please try again',
+        variant: 'destructive',
+      });
+    } finally {
       setSaving(false);
       setPassword('');
       setConfirmPassword('');
-    }, 1000);
+    }
   };
   
   const handleAvatarChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -160,9 +180,46 @@ const SettingsPage = () => {
               </div>
             </div>
             
+            <div className="space-y-4">
+              <h2 className="text-lg font-semibold">Настройки звука</h2>
+              
+              <div className="space-y-6">
+                <div className="flex items-center justify-between">
+                  <div className="space-y-0.5">
+                    <Label htmlFor="noise-suppression">Шумоподавление</Label>
+                    <p className="text-sm text-muted-foreground">
+                      Автоматически уменьшает фоновый шум
+                    </p>
+                  </div>
+                  <Switch
+                    id="noise-suppression"
+                    checked={noiseSuppression}
+                    onCheckedChange={setNoiseSuppression}
+                  />
+                </div>
+                
+                {noiseSuppression && (
+                  <div className="space-y-2">
+                    <Label>Чувствительность шумоподавления</Label>
+                    <div className="pt-2">
+                      <Slider
+                        value={[noiseThreshold]}
+                        onValueChange={([value]) => setNoiseThreshold(value)}
+                        max={100}
+                        step={1}
+                      />
+                    </div>
+                    <p className="text-sm text-muted-foreground">
+                      {noiseThreshold < 30 ? 'Низкая' : noiseThreshold < 70 ? 'Средняя' : 'Высокая'} чувствительность
+                    </p>
+                  </div>
+                )}
+              </div>
+            </div>
+            
             <div className="flex justify-end">
               <Button type="submit" disabled={saving}>
-                {saving ? 'Saving...' : 'Save Changes'}
+                {saving ? 'Сохранение...' : 'Сохранить'}
               </Button>
             </div>
           </form>
