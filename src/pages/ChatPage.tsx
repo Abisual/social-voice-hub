@@ -1,40 +1,49 @@
-
 import React, { useState, useEffect, useRef } from 'react';
 import ChatMessage, { ChatMessageProps } from '@/components/chat/ChatMessage';
 import ChatInput from '@/components/chat/ChatInput';
 import { useToast } from '@/hooks/use-toast';
 import { ScrollArea } from '@/components/ui/scroll-area';
 
-// Создадим более реалистичный пользовательский интерфейс
-const currentUser = {
-  id: 'currentUser',
-  username: 'CurrentUser',
-  tag: '#1234',
-};
-
 const ChatPage = () => {
-  const [messages, setMessages] = useState<ChatMessageProps[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [connected, setConnected] = useState(true);
-  
-  const messagesEndRef = useRef<HTMLDivElement>(null);
-  const { toast } = useToast();
-  
-  // Имитация получения начальных сообщений
-  useEffect(() => {
-    // Отображаем приветственное сообщение
-    setMessages([{
+  const [messages, setMessages] = useState<ChatMessageProps[]>(() => {
+    const savedMessages = localStorage.getItem('chatMessages');
+    if (savedMessages) {
+      return JSON.parse(savedMessages);
+    }
+    return [{
       id: '1',
-      content: 'Добро пожаловать в общий чат! Начните общение прямо сейчас.',
+      content: 'Welcome to the general chat! Start chatting now.',
       sender: {
         id: 'system',
-        username: 'Система',
+        username: 'System',
         tag: '#0000',
       },
       timestamp: new Date(),
-    }]);
-  }, []);
+    }];
+  });
   
+  const [loading, setLoading] = useState(false);
+  const [connected, setConnected] = useState(true);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const { toast } = useToast();
+
+  // Save messages to localStorage when they change
+  useEffect(() => {
+    localStorage.setItem('chatMessages', JSON.stringify(messages));
+  }, [messages]);
+
+  // Update username when it changes in settings
+  useEffect(() => {
+    const handleUsernameUpdate = () => {
+      const newUsername = localStorage.getItem('username') || 'CurrentUser';
+      // We don't need to update anything here as the Sidebar component
+      // will re-render with the new username automatically
+    };
+
+    window.addEventListener('usernameUpdated', handleUsernameUpdate);
+    return () => window.removeEventListener('usernameUpdated', handleUsernameUpdate);
+  }, []);
+
   // Автопрокрутка вниз при новых сообщениях
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -44,8 +53,8 @@ const ChatPage = () => {
   const handleSendMessage = (content: string) => {
     if (!connected) {
       toast({
-        title: "Соединение потеряно",
-        description: "Невозможно отправить сообщение. Пробуем переподключиться...",
+        title: "Connection lost",
+        description: "Cannot send message. Trying to reconnect...",
         variant: "destructive"
       });
       return;
@@ -53,38 +62,21 @@ const ChatPage = () => {
     
     setLoading(true);
     
-    // Создаем новое сообщение
+    const username = localStorage.getItem('username') || 'CurrentUser';
+    
     const newMessage: ChatMessageProps = {
       id: Date.now().toString(),
       content,
       sender: {
-        id: currentUser.id,
-        username: currentUser.username,
-        tag: currentUser.tag,
+        id: 'currentUser',
+        username: username,
+        tag: '#1234',
       },
       timestamp: new Date(),
     };
     
-    // Добавляем сообщение в список
-    setMessages((prev) => [...prev, newMessage]);
+    setMessages(prev => [...prev, newMessage]);
     setLoading(false);
-    
-    // Имитация ответа от другого пользователя после случайной задержки
-    if (Math.random() > 0.7) {
-      setTimeout(() => {
-        const botMessage: ChatMessageProps = {
-          id: Date.now().toString(),
-          content: "Привет! Это имитация ответа от другого пользователя.",
-          sender: {
-            id: 'user1',
-            username: 'TechGuru',
-            tag: '#4253',
-          },
-          timestamp: new Date(),
-        };
-        setMessages((prev) => [...prev, botMessage]);
-      }, Math.random() * 10000 + 1000); // От 1 до 11 секунд
-    }
   };
   
   return (

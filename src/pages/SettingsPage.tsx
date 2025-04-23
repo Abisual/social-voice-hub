@@ -16,8 +16,20 @@ const SettingsPage = () => {
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [saving, setSaving] = useState(false);
-  const [noiseSuppression, setNoiseSuppression] = useState(false);
-  const [noiseThreshold, setNoiseThreshold] = useState(50);
+  const [noiseSuppression, setNoiseSuppression] = useState(() => {
+    const settings = localStorage.getItem('noiseSuppression');
+    if (settings) {
+      return JSON.parse(settings).enabled;
+    }
+    return false;
+  });
+  const [noiseThreshold, setNoiseThreshold] = useState(() => {
+    const settings = localStorage.getItem('noiseSuppression');
+    if (settings) {
+      return JSON.parse(settings).threshold;
+    }
+    return 50;
+  });
   
   const { toast } = useToast();
   
@@ -36,8 +48,9 @@ const SettingsPage = () => {
     setSaving(true);
     
     try {
-      // Save username to localStorage
+      // Save username globally
       localStorage.setItem('username', username);
+      window.dispatchEvent(new Event('usernameUpdated'));
       
       // Save noise suppression settings
       localStorage.setItem('noiseSuppression', JSON.stringify({
@@ -181,14 +194,14 @@ const SettingsPage = () => {
             </div>
             
             <div className="space-y-4">
-              <h2 className="text-lg font-semibold">Настройки звука</h2>
+              <h2 className="text-lg font-semibold">Audio Settings</h2>
               
               <div className="space-y-6">
                 <div className="flex items-center justify-between">
                   <div className="space-y-0.5">
-                    <Label htmlFor="noise-suppression">Шумоподавление</Label>
+                    <Label htmlFor="noise-suppression">Noise Suppression</Label>
                     <p className="text-sm text-muted-foreground">
-                      Автоматически уменьшает фоновый шум
+                      Automatically reduce background noise
                     </p>
                   </div>
                   <Switch
@@ -200,7 +213,7 @@ const SettingsPage = () => {
                 
                 {noiseSuppression && (
                   <div className="space-y-2">
-                    <Label>Чувствительность шумоподавления</Label>
+                    <Label>Noise Suppression Sensitivity</Label>
                     <div className="pt-2">
                       <Slider
                         value={[noiseThreshold]}
@@ -210,7 +223,7 @@ const SettingsPage = () => {
                       />
                     </div>
                     <p className="text-sm text-muted-foreground">
-                      {noiseThreshold < 30 ? 'Низкая' : noiseThreshold < 70 ? 'Средняя' : 'Высокая'} чувствительность
+                      {noiseThreshold < 30 ? 'Low' : noiseThreshold < 70 ? 'Medium' : 'High'} sensitivity
                     </p>
                   </div>
                 )}
@@ -219,7 +232,7 @@ const SettingsPage = () => {
             
             <div className="flex justify-end">
               <Button type="submit" disabled={saving}>
-                {saving ? 'Сохранение...' : 'Сохранить'}
+                {saving ? 'Saving...' : 'Save'}
               </Button>
             </div>
           </form>
