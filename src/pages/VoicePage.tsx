@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef } from 'react';
 import VoiceUser from '@/components/voice/VoiceUser';
 import { Button } from '@/components/ui/button';
@@ -311,10 +310,7 @@ const VoicePage = () => {
     
     try {
       const stream = await navigator.mediaDevices.getDisplayMedia({ 
-        video: { 
-          cursor: 'always',
-          displaySurface: 'monitor',
-        },
+        video: true,
         audio: false 
       });
       
