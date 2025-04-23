@@ -14,6 +14,8 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { useNavigate } from 'react-router-dom';
+import { useToast } from '@/hooks/use-toast';
 
 export interface ChatMessageProps {
   id: string;
@@ -33,22 +35,56 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
   sender,
   timestamp,
 }) => {
-  // Format time as HH:MM
-  const formattedTime = new Intl.DateTimeFormat('en-US', {
+  const navigate = useNavigate();
+  const { toast } = useToast();
+  const isSystemMessage = sender.id === 'system';
+  
+  // Форматирование времени как ЧЧ:ММ
+  const formattedTime = new Intl.DateTimeFormat('ru-RU', {
     hour: '2-digit',
     minute: '2-digit',
-    hour12: true
   }).format(timestamp);
 
-  // Format date if not today
+  // Форматирование даты, если не сегодня
   const today = new Date();
   const isToday = today.toDateString() === timestamp.toDateString();
   const formattedDate = isToday 
-    ? 'Today at ' 
-    : new Intl.DateTimeFormat('en-US', {
-        month: 'short',
-        day: 'numeric'
-      }).format(timestamp) + ' at ';
+    ? 'Сегодня в ' 
+    : new Intl.DateTimeFormat('ru-RU', {
+        day: '2-digit',
+        month: '2-digit'
+      }).format(timestamp) + ' в ';
+
+  // Обработчик перехода к профилю
+  const handleViewProfile = () => {
+    // В будущем здесь будет навигация к профилю
+    toast({
+      title: `Просмотр профиля ${sender.username}`,
+      description: `В полной версии здесь будет профиль пользователя`,
+    });
+  };
+  
+  // Обработчик для отправки личного сообщения
+  const handleSendDM = () => {
+    navigate(`/dm/${sender.id}`);
+  };
+  
+  // Обработчик добавления в друзья
+  const handleAddFriend = () => {
+    toast({
+      title: `Запрос дружбы отправлен`,
+      description: `Вы отправили запрос дружбы пользователю ${sender.username}`,
+    });
+  };
+
+  // Отображаем системные сообщения по-другому
+  if (isSystemMessage) {
+    return (
+      <div className="py-2 px-4 text-center">
+        <span className="text-sm text-muted-foreground">{content}</span>
+      </div>
+    );
+  }
 
   return (
     <div className="group py-2 px-4 hover:bg-accent/30 flex message-appear">
@@ -72,7 +108,10 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
       
       <div className="flex-1 min-w-0">
         <div className="flex items-center">
-          <span className="font-medium hover:underline cursor-pointer">
+          <span 
+            className="font-medium hover:underline cursor-pointer"
+            onClick={handleViewProfile}
+          >
             {sender.username}
           </span>
           <span className="ml-1 text-xs text-muted-foreground">
@@ -96,17 +135,29 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
-            <DropdownMenuItem className="cursor-pointer">
+            <DropdownMenuItem 
+              className="cursor-pointer" 
+              onClick={handleViewProfile}
+            >
               <User className="h-4 w-4 mr-2" />
-              <span>View Profile</span>
+              <span>Профиль</span>
             </DropdownMenuItem>
-            <DropdownMenuItem className="cursor-pointer">
+            <DropdownMenuItem 
+              className="cursor-pointer"
+              onClick={handleSendDM}
+            >
               <MessageSquare className="h-4 w-4 mr-2" />
-              <span>Message</span>
+              <span>Написать</span>
             </DropdownMenuItem>
             <DropdownMenuSeparator />
+            <DropdownMenuItem 
+              className="cursor-pointer"
+              onClick={handleAddFriend}
+            >
+              Добавить в друзья
+            </DropdownMenuItem>
             <DropdownMenuItem className="cursor-pointer text-destructive">
-              Report Message
+              Пожаловаться
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>

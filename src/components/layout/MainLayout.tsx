@@ -3,49 +3,71 @@ import React from 'react';
 import Sidebar from './Sidebar';
 import { Outlet } from 'react-router-dom';
 import { useIsMobile } from '@/hooks/use-mobile';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
-import { Menu } from 'lucide-react';
+import { Menu, X } from 'lucide-react';
 
 const MainLayout = () => {
   const isMobile = useIsMobile();
   const [sidebarOpen, setSidebarOpen] = useState(!isMobile);
   
+  // Автоматически закрываем сайдбар при переходе на мобильный размер
+  useEffect(() => {
+    if (isMobile) {
+      setSidebarOpen(false);
+    } else {
+      setSidebarOpen(true);
+    }
+  }, [isMobile]);
+  
+  // Обработчики для сайдбара
+  const handleToggleSidebar = () => {
+    setSidebarOpen(!sidebarOpen);
+  };
+  
+  const handleCloseSidebar = () => {
+    if (isMobile) {
+      setSidebarOpen(false);
+    }
+  };
+  
   return (
     <div className="flex h-screen w-full overflow-hidden bg-background">
-      {/* Mobile sidebar toggle */}
-      {isMobile && (
-        <Button
-          variant="ghost"
-          size="icon"
-          className="absolute top-4 left-4 z-50"
-          onClick={() => setSidebarOpen(!sidebarOpen)}
-        >
+      {/* Кнопка переключения сайдбара для мобильных */}
+      <Button
+        variant="ghost"
+        size="icon"
+        className={`${isMobile ? 'fixed' : 'hidden'} top-4 left-4 z-50`}
+        onClick={handleToggleSidebar}
+      >
+        {sidebarOpen ? (
+          <X className="h-5 w-5" />
+        ) : (
           <Menu className="h-5 w-5" />
-        </Button>
-      )}
+        )}
+      </Button>
       
-      {/* Sidebar */}
+      {/* Сайдбар */}
       <div 
         className={`${
           sidebarOpen ? 'translate-x-0' : '-translate-x-full'
         } transition-transform duration-200 ease-in-out ${
-          isMobile ? 'absolute z-40 h-full' : 'relative'
-        }`}
+          isMobile ? 'fixed z-40 h-full' : 'relative'
+        } bg-sidebar`}
       >
-        <Sidebar onClose={() => isMobile && setSidebarOpen(false)} />
+        <Sidebar onClose={handleCloseSidebar} />
       </div>
       
-      {/* Overlay for mobile */}
+      {/* Затемнение для мобильных при открытом сайдбаре */}
       {isMobile && sidebarOpen && (
         <div 
-          className="absolute inset-0 bg-black/50 z-30"
-          onClick={() => setSidebarOpen(false)}
+          className="fixed inset-0 bg-black/50 z-30 animate-fade-in"
+          onClick={handleCloseSidebar}
         />
       )}
       
-      {/* Main content */}
-      <main className="flex flex-col flex-1 overflow-hidden">
+      {/* Основной контент */}
+      <main className={`flex flex-col flex-1 overflow-hidden ${isMobile && sidebarOpen ? 'blur-sm' : ''}`}>
         <Outlet />
       </main>
     </div>

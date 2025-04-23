@@ -1,147 +1,139 @@
 
-import { useState } from 'react';
-import {
-  Tabs,
-  TabsContent,
-  TabsList,
-  TabsTrigger,
-} from '@/components/ui/tabs';
-import FriendCard, { FriendProps } from '@/components/friends/FriendCard';
+import React, { useState } from 'react';
+import { Button } from '@/components/ui/button';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Input } from '@/components/ui/input';
+import { useToast } from '@/hooks/use-toast';
+import FriendCard from '@/components/friends/FriendCard';
 import AddFriendForm from '@/components/friends/AddFriendForm';
-import { Users, UserPlus } from 'lucide-react';
+import { PlusCircle, UserPlus, Users } from 'lucide-react';
 
-// Mock data for demonstration
-const MOCK_FRIENDS: FriendProps[] = [
-  {
-    id: 'admin',
-    username: 'Admin',
-    tag: '#0001',
-    status: 'online',
-    isFriend: true,
-  },
+// Изменим тип status на разрешенные значения
+type FriendStatus = "online" | "offline" | "idle" | "dnd";
+
+// Демо-данные друзей с правильной типизацией
+const MOCK_FRIENDS = [
   {
     id: 'user1',
     username: 'TechGuru',
     tag: '#4253',
-    status: 'online',
+    status: "online" as FriendStatus,
+    avatar: '',
     isFriend: true,
   },
   {
     id: 'user2',
     username: 'GameMaster',
     tag: '#7890',
-    status: 'idle',
+    status: "idle" as FriendStatus,
+    avatar: '',
     isFriend: true,
-  },
-  {
-    id: 'user3',
-    username: 'CodeNinja',
-    tag: '#5678',
-    status: 'offline',
-    isFriend: true,
-  },
-  {
-    id: 'user4',
-    username: 'PixelArtist',
-    tag: '#1122',
-    status: 'dnd',
-    isFriend: true,
-  },
+  }
 ];
 
-const MOCK_PENDING_REQUESTS = [
+// Демо-данные для входящих запросов
+const MOCK_REQUESTS = [
   {
-    id: 'user5',
-    username: 'MusicLover',
-    tag: '#3344',
-    status: 'online',
+    id: 'user3',
+    username: 'PixelArtist',
+    tag: '#1122',
+    status: "online" as FriendStatus,
+    avatar: '',
     isFriend: false,
-  },
-  {
-    id: 'user6',
-    username: 'BookWorm',
-    tag: '#5566',
-    status: 'offline',
-    isFriend: false,
-  },
+  }
 ];
 
 const FriendsPage = () => {
-  const [friends] = useState<FriendProps[]>(MOCK_FRIENDS);
-  const [pendingRequests] = useState<FriendProps[]>(MOCK_PENDING_REQUESTS);
+  const [activeTab, setActiveTab] = useState('friends');
+  const [searchQuery, setSearchQuery] = useState('');
+  const { toast } = useToast();
+  
+  const handleAddFriend = (username: string) => {
+    if (!username.includes('#')) {
+      toast({
+        title: 'Invalid format',
+        description: 'Please enter a username with tag (e.g., Friend#1234)',
+      });
+      return;
+    }
+    
+    toast({
+      title: 'Friend request sent!',
+      description: `Your request to ${username} has been sent.`,
+    });
+  };
+  
+  const filteredFriends = MOCK_FRIENDS.filter(friend => 
+    friend.username.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    friend.tag.toLowerCase().includes(searchQuery.toLowerCase())
+  );
   
   return (
     <div className="flex flex-col h-full">
       <div className="border-b p-4">
         <h1 className="text-xl font-bold">Friends</h1>
-        <p className="text-sm text-muted-foreground">
-          Manage your friends and requests
-        </p>
-      </div>
-      
-      <div className="p-4 flex-1 overflow-hidden">
-        <Tabs defaultValue="all" className="h-full flex flex-col">
-          <div className="border-b pb-2">
-            <TabsList>
-              <TabsTrigger value="all" className="gap-2">
-                <Users className="h-4 w-4" />
-                <span>All Friends</span>
-                <span className="bg-accent text-accent-foreground rounded-full w-5 h-5 flex items-center justify-center text-xs">
-                  {friends.length}
-                </span>
-              </TabsTrigger>
-              <TabsTrigger value="pending" className="gap-2">
-                <UserPlus className="h-4 w-4" />
-                <span>Pending</span>
-                {pendingRequests.length > 0 && (
-                  <span className="bg-primary text-primary-foreground rounded-full w-5 h-5 flex items-center justify-center text-xs">
-                    {pendingRequests.length}
-                  </span>
-                )}
-              </TabsTrigger>
-              <TabsTrigger value="add">Add Friend</TabsTrigger>
-            </TabsList>
-          </div>
+        <Tabs
+          defaultValue="friends"
+          value={activeTab}
+          onValueChange={setActiveTab}
+          className="mt-4"
+        >
+          <TabsList className="mb-4">
+            <TabsTrigger value="friends" className="flex items-center gap-2">
+              <Users className="h-4 w-4" />
+              <span>All Friends</span>
+            </TabsTrigger>
+            <TabsTrigger value="pending" className="flex items-center gap-2">
+              <UserPlus className="h-4 w-4" />
+              <span>Requests</span>
+            </TabsTrigger>
+            <TabsTrigger value="add" className="flex items-center gap-2">
+              <PlusCircle className="h-4 w-4" />
+              <span>Add Friend</span>
+            </TabsTrigger>
+          </TabsList>
           
-          <div className="overflow-y-auto pt-4 flex-1">
-            <TabsContent value="all" className="h-full">
-              <div className="grid gap-3">
-                {friends.length > 0 ? (
-                  friends.map(friend => (
-                    <FriendCard key={friend.id} {...friend} />
-                  ))
-                ) : (
-                  <div className="text-center py-10">
-                    <p className="text-lg font-medium">No friends yet</p>
-                    <p className="text-muted-foreground">
-                      Add some friends to start chatting
-                    </p>
-                  </div>
-                )}
-              </div>
-            </TabsContent>
+          <TabsContent value="friends" className="space-y-4">
+            <div className="flex gap-2">
+              <Input 
+                placeholder="Search friends..." 
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="max-w-sm"
+              />
+            </div>
             
-            <TabsContent value="pending" className="h-full">
-              <div className="grid gap-3">
-                {pendingRequests.length > 0 ? (
-                  pendingRequests.map(request => (
-                    <FriendCard key={request.id} {...request} />
-                  ))
-                ) : (
-                  <div className="text-center py-10">
-                    <p className="text-lg font-medium">No pending requests</p>
-                    <p className="text-muted-foreground">
-                      You don't have any pending friend requests
-                    </p>
-                  </div>
-                )}
-              </div>
-            </TabsContent>
-            
-            <TabsContent value="add" className="h-full">
-              <AddFriendForm />
-            </TabsContent>
-          </div>
+            <div className="grid gap-4">
+              {filteredFriends.length > 0 ? (
+                filteredFriends.map(friend => (
+                  <FriendCard 
+                    key={friend.id} 
+                    {...friend}
+                  />
+                ))
+              ) : (
+                <div className="text-center py-8">
+                  <p className="text-muted-foreground">No friends found</p>
+                </div>
+              )}
+            </div>
+          </TabsContent>
+          
+          <TabsContent value="pending" className="space-y-4">
+            <h2 className="text-lg font-semibold">Friend Requests</h2>
+            <div className="grid gap-4">
+              {MOCK_REQUESTS.map(request => (
+                <FriendCard 
+                  key={request.id}
+                  {...request}
+                />
+              ))}
+            </div>
+          </TabsContent>
+          
+          <TabsContent value="add">
+            <AddFriendForm onAddFriend={handleAddFriend} />
+          </TabsContent>
         </Tabs>
       </div>
     </div>
