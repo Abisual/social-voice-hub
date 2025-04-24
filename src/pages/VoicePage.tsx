@@ -34,6 +34,7 @@ type VoiceChannelStore = {
   microphoneAccess: boolean | null;
   voiceUsers: VoiceUserType[];
   isMuted: boolean;
+  hasInitialized: boolean;  // New flag to track initialization
 };
 
 const voiceChannelStore: VoiceChannelStore = {
@@ -44,7 +45,8 @@ const voiceChannelStore: VoiceChannelStore = {
   isScreenSharing: false,
   microphoneAccess: null,
   voiceUsers: [],
-  isMuted: false
+  isMuted: false,
+  hasInitialized: false  // Track if we've initialized the voice connection
 };
 
 const CURRENT_USER: VoiceUserType = {
@@ -139,57 +141,84 @@ const VoicePage = () => {
     setScreenShareStream(null);
     setMicrophoneAccess(null);
     setVoiceUsers([{...CURRENT_USER, username: localStorage.getItem('username') || 'User'}]);
+
+    // Reset the initialization flag to ensure we reconnect properly next time
+    voiceChannelStore.hasInitialized = false;
     
     toast({
       title: "Отключено от голосового чата",
     });
   };
 
+  // Setup voice connection
   useEffect(() => {
-    if (!isConnected && !isConnecting) {
-      setIsConnecting(true);
-      toast({
-        title: "Подключение к голосовому чату",
-        description: "Пожалуйста, подождите...",
-      });
+    // If we're already connected or connecting, don't do anything
+    if (isConnected || isConnecting) return;
+    
+    // If we've already initialized the voice connection, just restore it
+    if (voiceChannelStore.hasInitialized && voiceChannelStore.audioStream) {
+      console.log("Restoring voice connection from store");
+      setAudioStream(voiceChannelStore.audioStream);
+      setIsConnected(true);
+      setMicrophoneAccess(true);
       
-      setTimeout(() => {
-        setIsConnected(true);
-        setIsConnecting(false);
-        toast({
-          title: "Подключено к голосовому чату",
-          description: "Вы можете начать общение",
-        });
-        
-        checkMicrophoneAccess();
-      }, 2000);
+      // Restart audio analysis if needed
+      if (voiceChannelStore.audioStream && !analyserRef.current) {
+        setupAudioAnalysis(voiceChannelStore.audioStream);
+      }
+      return;
     }
     
-    return () => {
-      // DO NOT disconnect when navigating away
-      // We're using the static store to keep the connection active
-    };
+    // Otherwise, establish a new connection
+    setIsConnecting(true);
+    toast({
+      title: "Подключение к голосовому чату",
+      description: "Пожалуйста, подождите...",
+    });
+    
+    setTimeout(() => {
+      setIsConnected(true);
+      setIsConnecting(false);
+      toast({
+        title: "Подключено к голосовому чату",
+        description: "Вы можете начать общение",
+      });
+      
+      // Mark that we've initialized
+      voiceChannelStore.hasInitialized = true;
+      checkMicrophoneAccess();
+    }, 2000);
+
+    // Cleanup function is intentionally empty - we want to persist the connection
+    return () => {};
   }, []);
 
   const checkMicrophoneAccess = async () => {
     try {
+      // If we already have a stream, use it
+      if (audioStream) {
+        console.log("Using existing audio stream");
+        setupAudioAnalysis(audioStream);
+        return;
+      }
+      
+      console.log("Requesting new microphone access");
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       setAudioStream(stream);
       setMicrophoneAccess(true);
       
-      const audioContext = new AudioContext();
-      audioContextRef.current = audioContext;
+      // Apply muted state to the new stream
+      stream.getAudioTracks().forEach(track => {
+        track.enabled = !isMuted;
+      });
       
-      const analyser = audioContext.createAnalyser();
-      analyserRef.current = analyser;
-      analyser.fftSize = 256;
+      setupAudioAnalysis(stream);
       
-      const source = audioContext.createMediaStreamSource(stream);
-      source.connect(analyser);
-      
-      analyzeMicrophoneLevel();
-      
-      const updatedUser = { ...CURRENT_USER, isMuted: false, username: localStorage.getItem('username') || 'User' };
+      const updatedUser = { 
+        ...CURRENT_USER, 
+        isMuted, 
+        username: localStorage.getItem('username') || 'User' 
+      };
       updateVoiceUser(updatedUser);
       
       toast({
@@ -200,7 +229,11 @@ const VoicePage = () => {
       console.error('Ошибка доступа к микрофону:', error);
       setMicrophoneAccess(false);
       
-      const updatedUser = { ...CURRENT_USER, isMuted: true, username: localStorage.getItem('username') || 'User' };
+      const updatedUser = { 
+        ...CURRENT_USER, 
+        isMuted: true, 
+        username: localStorage.getItem('username') || 'User' 
+      };
       updateVoiceUser(updatedUser);
       
       toast({
@@ -209,6 +242,32 @@ const VoicePage = () => {
         variant: "destructive",
       });
     }
+  };
+
+  // New function to setup audio analysis
+  const setupAudioAnalysis = (stream: MediaStream) => {
+    // Close existing audio context if any
+    if (audioContextRef.current) {
+      audioContextRef.current.close();
+    }
+    
+    // Cancel existing animation frame if any
+    if (animationFrameRef.current) {
+      cancelAnimationFrame(animationFrameRef.current);
+    }
+    
+    // Create new audio context
+    const audioContext = new AudioContext();
+    audioContextRef.current = audioContext;
+    
+    const analyser = audioContext.createAnalyser();
+    analyserRef.current = analyser;
+    analyser.fftSize = 256;
+    
+    const source = audioContext.createMediaStreamSource(stream);
+    source.connect(analyser);
+    
+    analyzeMicrophoneLevel();
   };
 
   const analyzeMicrophoneLevel = () => {
@@ -356,6 +415,17 @@ const VoicePage = () => {
       });
     }
   };
+
+  // Add cleanup on component unmount to ensure we maintain the connection
+  useEffect(() => {
+    return () => {
+      // Do NOT disconnect on unmount
+      // Only stop audio analysis to save resources
+      if (animationFrameRef.current) {
+        cancelAnimationFrame(animationFrameRef.current);
+      }
+    };
+  }, []);
 
   return (
     <div className="flex flex-col h-full">
