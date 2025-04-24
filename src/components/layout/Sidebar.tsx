@@ -53,20 +53,21 @@ const Sidebar: React.FC<SidebarProps> = ({ onClose }) => {
     return () => window.removeEventListener('usernameUpdated', handleUsernameUpdate);
   }, []);
   
-  // Voice channel state synchronization
+  // Voice channel state synchronization - improved reliability
   useEffect(() => {
     const updateVoiceState = () => {
+      // Check if store exists
+      if (!window.voiceChannelStore) return;
+      
       // Get state from the global voice store
-      if (window.voiceChannelStore) {
-        setIsVoiceConnected(window.voiceChannelStore.isConnected);
-        setIsVoiceConnecting(window.voiceChannelStore.isConnecting);
-        setIsMicMuted(window.voiceChannelStore.isMuted);
-        
-        // Check if local user is speaking
-        const currentUser = window.voiceChannelStore.voiceUsers?.find(u => u.id === 'currentUser');
-        if (currentUser) {
-          setIsSpeaking(currentUser.isSpeaking);
-        }
+      setIsVoiceConnected(window.voiceChannelStore.isConnected);
+      setIsVoiceConnecting(window.voiceChannelStore.isConnecting);
+      setIsMicMuted(window.voiceChannelStore.isMuted);
+      
+      // Check if local user is speaking
+      const currentUser = window.voiceChannelStore.voiceUsers?.find(u => u.id === 'currentUser');
+      if (currentUser) {
+        setIsSpeaking(currentUser.isSpeaking);
       }
     };
     
@@ -77,7 +78,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onClose }) => {
     window.addEventListener('voiceStateUpdated', updateVoiceState);
     
     // Regular polling as a fallback
-    const intervalId = setInterval(updateVoiceState, 1000);
+    const intervalId = setInterval(updateVoiceState, 500);
     
     return () => {
       window.removeEventListener('voiceStateUpdated', updateVoiceState);
@@ -86,59 +87,55 @@ const Sidebar: React.FC<SidebarProps> = ({ onClose }) => {
   }, []);
   
   const handleToggleMute = () => {
-    if (!isVoiceConnected) return;
+    if (!isVoiceConnected || !window.voiceChannelStore) return;
     
-    const newMutedState = !isMicMuted;
-    
-    // Update local state
-    setIsMicMuted(newMutedState);
-    
-    // Update the global voice store
-    if (window.voiceChannelStore) {
-      window.voiceChannelStore.isMuted = newMutedState;
-      
-      // Toggle mute on the audio stream
-      if (window.voiceChannelStore.audioStream) {
-        window.voiceChannelStore.audioStream.getAudioTracks().forEach(track => {
-          track.enabled = !newMutedState;
-        });
-      }
-      
-      // Update user state
-      const updatedUsers = window.voiceChannelStore.voiceUsers.map(user => 
-        user.id === 'currentUser' ? { ...user, isMuted: newMutedState, isSpeaking: false } : user
-      );
-      window.voiceChannelStore.voiceUsers = updatedUsers;
-      
-      // Dispatch event to notify other components
-      window.dispatchEvent(new CustomEvent('voiceStateUpdated'));
-    }
+    // Use the global toggleMute function
+    window.voiceChannelStore.toggleMute();
     
     toast({
-      title: newMutedState ? "Микрофон выключен" : "Микрофон включен",
+      title: isMicMuted ? "Микрофон включен" : "Микрофон выключен",
     });
   };
   
   const handleDisconnect = () => {
-    if (!isVoiceConnected) return;
+    if (!isVoiceConnected || !window.voiceChannelStore) return;
     
-    if (window.voiceChannelStore && typeof window.voiceChannelStore.disconnect === 'function') {
-      window.voiceChannelStore.disconnect();
-      toast({
-        title: "Отключено от голосового чата",
-      });
-    } else {
-      // Fallback if disconnect function isn't available
-      navigate('/voice');
-      toast({
-        title: "Переход к голосовому чату для отключения",
-      });
-    }
+    // Use the global disconnect function
+    window.voiceChannelStore.disconnect();
+    
+    toast({
+      title: "Отключено от голосового чата",
+    });
   };
   
   const handleGoToVoice = () => {
     navigate('/voice');
     if (onClose) onClose();
+  };
+  
+  const handleConnectVoice = async () => {
+    if (!window.voiceChannelStore) return;
+    
+    toast({
+      title: "Подключение к голосовому чату",
+      description: "Пожалуйста, подождите...",
+    });
+    
+    const success = await window.voiceChannelStore.reconnect();
+    
+    if (success) {
+      toast({
+        title: "Подключено к голосовому чату",
+      });
+      navigate('/voice');
+      if (onClose) onClose();
+    } else {
+      toast({
+        title: "Ошибка подключения",
+        description: "Не удалось подключиться к голосовому чату",
+        variant: "destructive",
+      });
+    }
   };
   
   const handleLogout = () => {
@@ -188,7 +185,10 @@ const Sidebar: React.FC<SidebarProps> = ({ onClose }) => {
           <Users className="h-5 w-5" />
           <span>Voice Room</span>
           {isVoiceConnected && location.pathname !== '/voice' && (
-            <span className="ml-auto flex h-2 w-2 rounded-full bg-green-500"></span>
+            <span className={cn(
+              "ml-auto flex h-2 w-2 rounded-full",
+              isSpeaking && !isMicMuted ? "bg-green-500 animate-pulse" : "bg-green-500"
+            )}></span>
           )}
         </NavLink>
         
@@ -283,7 +283,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onClose }) => {
               </TooltipProvider>
             )}
             
-            {!isVoiceConnected && !isVoiceConnecting && location.pathname !== '/voice' && (
+            {!isVoiceConnected && !isVoiceConnecting && (
               <TooltipProvider>
                 <Tooltip>
                   <TooltipTrigger asChild>
@@ -291,7 +291,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onClose }) => {
                       variant="ghost" 
                       size="icon" 
                       className="h-8 w-8 text-green-500 hover:bg-green-500/20"
-                      onClick={handleGoToVoice}
+                      onClick={handleConnectVoice}
                     >
                       <Mic className="h-4 w-4" />
                     </Button>

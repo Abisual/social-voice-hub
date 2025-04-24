@@ -14,6 +14,7 @@ const ScreenShareView: React.FC<ScreenShareViewProps> = ({ stream, isActive }) =
   
   useEffect(() => {
     if (videoRef.current && stream) {
+      // Only set the video source, don't touch audio
       videoRef.current.srcObject = stream;
     }
     
@@ -38,6 +39,7 @@ const ScreenShareView: React.FC<ScreenShareViewProps> = ({ stream, isActive }) =
     }
   };
   
+  // Monitor fullscreen changes
   useEffect(() => {
     const handleFullscreenChange = () => {
       setIsFullscreen(!!document.fullscreenElement);

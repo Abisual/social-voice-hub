@@ -14,6 +14,7 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 import { Slider } from '@/components/ui/slider';
+import { cn } from '@/lib/utils';
 
 interface VoiceUserProps {
   id: string;
@@ -45,14 +46,22 @@ const VoiceUser: React.FC<VoiceUserProps> = ({
   onVolumeChange,
 }) => {
   return (
-    <div className={`p-3 rounded-lg ${isSpeaking ? 'bg-accent/30' : 'bg-card'} transition-colors`}>
+    <div 
+      className={cn(
+        "p-3 rounded-lg transition-colors", 
+        isSpeaking && !isMuted ? "bg-accent/30" : "bg-card"
+      )}
+    >
       <div className="flex items-center">
         <div className="relative">
           <Avatar className="h-10 w-10">
             {avatar ? (
               <img src={avatar} alt={username} className="h-full w-full object-cover" />
             ) : (
-              <div className="bg-primary/20 h-full w-full flex items-center justify-center">
+              <div className={cn(
+                "bg-primary/20 h-full w-full flex items-center justify-center",
+                isSpeaking && !isMuted && "animate-pulse bg-primary/30"
+              )}>
                 <span className="font-medium text-primary">
                   {username.charAt(0).toUpperCase()}
                 </span>
@@ -81,15 +90,15 @@ const VoiceUser: React.FC<VoiceUserProps> = ({
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button 
-                  variant="ghost" 
+                  variant={isMuted ? "destructive" : "ghost"} 
                   size="icon" 
                   className="h-8 w-8" 
                   onClick={() => onToggleMute(id)}
                 >
                   {isMuted ? (
-                    <MicOff className="h-4 w-4 text-destructive" />
+                    <MicOff className="h-4 w-4" />
                   ) : (
-                    <Mic className="h-4 w-4" />
+                    <Mic className={cn("h-4 w-4", isSpeaking && "text-green-500")} />
                   )}
                 </Button>
               </TooltipTrigger>
@@ -104,13 +113,13 @@ const VoiceUser: React.FC<VoiceUserProps> = ({
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button 
-                  variant="ghost" 
+                  variant={isLocalMuted ? "destructive" : "ghost"}
                   size="icon" 
                   className="h-8 w-8"
                   onClick={() => onToggleLocalMute(id)}
                 >
                   {isLocalMuted ? (
-                    <VolumeX className="h-4 w-4 text-destructive" />
+                    <VolumeX className="h-4 w-4" />
                   ) : (
                     <Volume2 className="h-4 w-4" />
                   )}
