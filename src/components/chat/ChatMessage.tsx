@@ -39,37 +39,39 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
   const { toast } = useToast();
   const isSystemMessage = sender.id === 'system';
   
-  // Форматирование времени как ЧЧ:ММ
+  // Ensure timestamp is a valid Date object
+  const messageTime = timestamp instanceof Date ? timestamp : new Date();
+  
+  // Format time as HH:MM
   const formattedTime = new Intl.DateTimeFormat('ru-RU', {
     hour: '2-digit',
     minute: '2-digit',
-  }).format(timestamp);
+  }).format(messageTime);
 
-  // Форматирование даты, если не сегодня
+  // Format date if not today
   const today = new Date();
-  const isToday = today.toDateString() === timestamp.toDateString();
+  const isToday = today.toDateString() === messageTime.toDateString();
   const formattedDate = isToday 
     ? 'Сегодня в ' 
     : new Intl.DateTimeFormat('ru-RU', {
         day: '2-digit',
         month: '2-digit'
-      }).format(timestamp) + ' в ';
+      }).format(messageTime) + ' в ';
 
-  // Обработчик перехода к профилю
+  // Profile view handler
   const handleViewProfile = () => {
-    // В будущем здесь будет навигация к профилю
     toast({
       title: `Просмотр профиля ${sender.username}`,
       description: `В полной версии здесь будет профиль пользователя`,
     });
   };
   
-  // Обработчик для отправки личного сообщения
+  // Direct message handler
   const handleSendDM = () => {
     navigate(`/dm/${sender.id}`);
   };
   
-  // Обработчик добавления в друзья
+  // Add friend handler
   const handleAddFriend = () => {
     toast({
       title: `Запрос дружбы отправлен`,
@@ -77,7 +79,7 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
     });
   };
 
-  // Отображаем системные сообщения по-другому
+  // Display system messages differently
   if (isSystemMessage) {
     return (
       <div className="py-2 px-4 text-center">

@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import ChatMessage, { ChatMessageProps } from '@/components/chat/ChatMessage';
 import ChatInput from '@/components/chat/ChatInput';
@@ -8,8 +9,28 @@ const ChatPage = () => {
   const [messages, setMessages] = useState<ChatMessageProps[]>(() => {
     const savedMessages = localStorage.getItem('chatMessages');
     if (savedMessages) {
-      return JSON.parse(savedMessages);
+      try {
+        // Parse messages and convert timestamp strings back to Date objects
+        const parsedMessages = JSON.parse(savedMessages);
+        return parsedMessages.map((msg: any) => ({
+          ...msg,
+          timestamp: new Date(msg.timestamp)
+        }));
+      } catch (error) {
+        console.error("Failed to parse messages from localStorage:", error);
+        return getDefaultMessage();
+      }
     }
+    return getDefaultMessage();
+  });
+  
+  const [loading, setLoading] = useState(false);
+  const [connected, setConnected] = useState(true);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const { toast } = useToast();
+
+  // Create a default welcome message
+  function getDefaultMessage(): ChatMessageProps[] {
     return [{
       id: '1',
       content: 'Welcome to the general chat! Start chatting now.',
@@ -20,12 +41,7 @@ const ChatPage = () => {
       },
       timestamp: new Date(),
     }];
-  });
-  
-  const [loading, setLoading] = useState(false);
-  const [connected, setConnected] = useState(true);
-  const messagesEndRef = useRef<HTMLDivElement>(null);
-  const { toast } = useToast();
+  }
 
   // Save messages to localStorage when they change
   useEffect(() => {
@@ -35,7 +51,6 @@ const ChatPage = () => {
   // Update username when it changes in settings
   useEffect(() => {
     const handleUsernameUpdate = () => {
-      const newUsername = localStorage.getItem('username') || 'CurrentUser';
       // We don't need to update anything here as the Sidebar component
       // will re-render with the new username automatically
     };
@@ -44,12 +59,12 @@ const ChatPage = () => {
     return () => window.removeEventListener('usernameUpdated', handleUsernameUpdate);
   }, []);
 
-  // Автопрокрутка вниз при новых сообщениях
+  // Auto-scroll to bottom when new messages arrive
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
   
-  // Обработка отправки сообщения
+  // Handle sending messages
   const handleSendMessage = (content: string) => {
     if (!connected) {
       toast({

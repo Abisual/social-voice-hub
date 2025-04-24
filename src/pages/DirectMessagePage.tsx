@@ -25,10 +25,10 @@ const DirectMessagePage = () => {
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
   
-  // Загрузка информации о пользователе
+  // Load user info and initialize chat
   useEffect(() => {
     if (!userId || !USER_INFO[userId]) {
-      // Если пользователь не найден, возвращаемся
+      // If user not found, navigate back
       toast({
         title: "Пользователь не найден",
         description: "Возвращаемся к списку друзей",
@@ -40,7 +40,7 @@ const DirectMessagePage = () => {
     
     setUserInfo(USER_INFO[userId]);
     
-    // Создаем приветственное сообщение
+    // Create welcome message
     setMessages([
       {
         id: '1',
@@ -55,22 +55,24 @@ const DirectMessagePage = () => {
     ]);
   }, [userId, navigate, toast]);
   
-  // Автопрокрутка вниз при новых сообщениях
+  // Auto-scroll to bottom on new messages
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
   
-  // Отправка сообщения
+  // Send message handler
   const handleSendMessage = (content: string) => {
     setLoading(true);
     
-    // Создаем новое сообщение
+    const username = localStorage.getItem('username') || 'CurrentUser';
+    
+    // Create new message
     const newMessage: ChatMessageProps = {
       id: Date.now().toString(),
       content,
       sender: {
         id: 'currentUser',
-        username: 'CurrentUser',
+        username: username,
         tag: '#1234',
       },
       timestamp: new Date(),
@@ -79,7 +81,7 @@ const DirectMessagePage = () => {
     setMessages([...messages, newMessage]);
     setLoading(false);
     
-    // Имитация ответа от собеседника с вероятностью 80%
+    // Simulate response from the other user with 80% probability
     if (Math.random() > 0.2 && userInfo) {
       setTimeout(() => {
         const responses = [
@@ -106,7 +108,7 @@ const DirectMessagePage = () => {
         };
         
         setMessages(prev => [...prev, responseMessage]);
-      }, Math.random() * 3000 + 1000); // Задержка от 1 до 4 секунд
+      }, Math.random() * 3000 + 1000); // Delay between 1-4 seconds
     }
   };
   
