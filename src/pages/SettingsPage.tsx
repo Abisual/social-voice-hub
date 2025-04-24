@@ -75,6 +75,21 @@ const SettingsPage = () => {
       // Save echo cancellation setting
       localStorage.setItem('echoCancel', echoCancel.toString());
       
+      // If in voice chat and settings changed, need to update the audio constraints
+      const audioStream = window.navigator.mediaDevices.getSupportedConstraints().noiseSuppression && 
+                         window.navigator.mediaDevices.getSupportedConstraints().echoCancellation;
+      
+      if (audioStream) {
+        // Dispatch custom event to notify voice chat of settings changes
+        window.dispatchEvent(new CustomEvent('voiceSettingsChanged', { 
+          detail: { 
+            noiseSuppression, 
+            noiseThreshold, 
+            echoCancel 
+          }
+        }));
+      }
+      
       toast({
         title: 'Settings saved',
         description: 'Your profile has been updated successfully',
@@ -224,7 +239,9 @@ const SettingsPage = () => {
                   <Switch
                     id="noise-suppression"
                     checked={noiseSuppression}
-                    onCheckedChange={setNoiseSuppression}
+                    onCheckedChange={(checked) => {
+                      setNoiseSuppression(checked);
+                    }}
                   />
                 </div>
                 

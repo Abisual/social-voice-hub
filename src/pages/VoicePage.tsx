@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import VoiceUser from '@/components/voice/VoiceUser';
 import { Button } from '@/components/ui/button';
@@ -34,7 +35,10 @@ type VoiceChannelStore = {
   microphoneAccess: boolean | null;
   voiceUsers: VoiceUserType[];
   isMuted: boolean;
-  hasInitialized: boolean;  // New flag to track initialization
+  hasInitialized: boolean;
+  audioContext: AudioContext | null;
+  analyser: AnalyserNode | null;
+  audioSource: MediaStreamAudioSourceNode | null;
 };
 
 const voiceChannelStore: VoiceChannelStore = {
@@ -46,7 +50,10 @@ const voiceChannelStore: VoiceChannelStore = {
   microphoneAccess: null,
   voiceUsers: [],
   isMuted: false,
-  hasInitialized: false  // Track if we've initialized the voice connection
+  hasInitialized: false,
+  audioContext: null,
+  analyser: null,
+  audioSource: null
 };
 
 const CURRENT_USER: VoiceUserType = {
@@ -76,8 +83,9 @@ const VoicePage = () => {
   const [screenShareStream, setScreenShareStream] = useState<MediaStream | null>(voiceChannelStore.screenShareStream);
   const [isScreenSharing, setIsScreenSharing] = useState(voiceChannelStore.isScreenSharing);
   
-  const audioContextRef = useRef<AudioContext | null>(null);
-  const analyserRef = useRef<AnalyserNode | null>(null);
+  const audioContextRef = useRef<AudioContext | null>(voiceChannelStore.audioContext);
+  const analyserRef = useRef<AnalyserNode | null>(voiceChannelStore.analyser);
+  const audioSourceRef = useRef<MediaStreamAudioSourceNode | null>(voiceChannelStore.audioSource);
   const animationFrameRef = useRef<number | null>(null);
   
   const { toast } = useToast();
@@ -92,6 +100,9 @@ const VoicePage = () => {
     voiceChannelStore.microphoneAccess = microphoneAccess;
     voiceChannelStore.voiceUsers = voiceUsers;
     voiceChannelStore.isMuted = isMuted;
+    voiceChannelStore.audioContext = audioContextRef.current;
+    voiceChannelStore.analyser = analyserRef.current;
+    voiceChannelStore.audioSource = audioSourceRef.current;
   }, [
     isConnected, 
     isConnecting, 
@@ -122,18 +133,22 @@ const VoicePage = () => {
   }, []);
   
   const handleDisconnect = () => {
+    stopAudioAnalysis();
+    
     if (audioStream) {
       audioStream.getTracks().forEach(track => track.stop());
     }
     if (screenShareStream) {
       screenShareStream.getTracks().forEach(track => track.stop());
     }
-    if (animationFrameRef.current) {
-      cancelAnimationFrame(animationFrameRef.current);
-    }
+    
     if (audioContextRef.current) {
       audioContextRef.current.close();
+      audioContextRef.current = null;
     }
+    
+    analyserRef.current = null;
+    audioSourceRef.current = null;
     
     setIsConnected(false);
     setIsConnecting(false);
@@ -150,6 +165,14 @@ const VoicePage = () => {
     });
   };
 
+  // Stop audio analysis
+  const stopAudioAnalysis = () => {
+    if (animationFrameRef.current) {
+      cancelAnimationFrame(animationFrameRef.current);
+      animationFrameRef.current = null;
+    }
+  };
+
   // Setup voice connection
   useEffect(() => {
     // If we're already connected or connecting, don't do anything
@@ -163,7 +186,7 @@ const VoicePage = () => {
       setMicrophoneAccess(true);
       
       // Restart audio analysis if needed
-      if (voiceChannelStore.audioStream && !analyserRef.current) {
+      if (voiceChannelStore.audioStream && (!analyserRef.current || !animationFrameRef.current)) {
         setupAudioAnalysis(voiceChannelStore.audioStream);
       }
       return;
@@ -193,6 +216,43 @@ const VoicePage = () => {
     return () => {};
   }, []);
 
+  // Check if the component is currently mounted
+  const isMountedRef = useRef(true);
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
+
+  // Focus effect to maintain microphone functionality when returning to the tab
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible' && voiceChannelStore.hasInitialized) {
+        // Only recreate audio analysis if it's not active
+        if (voiceChannelStore.audioStream && !animationFrameRef.current && isMountedRef.current) {
+          console.log("Restoring audio analysis on visibility change");
+          setupAudioAnalysis(voiceChannelStore.audioStream);
+        }
+      }
+    };
+
+    // Add visibility change listener
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    // Add a focus handler to address tab navigation
+    window.addEventListener('focus', () => {
+      if (voiceChannelStore.audioStream && !animationFrameRef.current && isMountedRef.current) {
+        console.log("Restoring audio analysis on window focus");
+        setupAudioAnalysis(voiceChannelStore.audioStream);
+      }
+    });
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, []);
+
   const checkMicrophoneAccess = async () => {
     try {
       // If we already have a stream, use it
@@ -203,7 +263,24 @@ const VoicePage = () => {
       }
       
       console.log("Requesting new microphone access");
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const noiseSuppressionEnabled = (() => {
+        const settings = localStorage.getItem('noiseSuppression');
+        if (settings) {
+          return JSON.parse(settings).enabled;
+        }
+        return false;
+      })();
+
+      const echoCancelEnabled = localStorage.getItem('echoCancel') === 'true';
+
+      const constraints = { 
+        audio: {
+          noiseSuppression: noiseSuppressionEnabled,
+          echoCancellation: echoCancelEnabled
+        }
+      };
+      
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
       setAudioStream(stream);
       setMicrophoneAccess(true);
       
@@ -244,39 +321,68 @@ const VoicePage = () => {
     }
   };
 
-  // New function to setup audio analysis
+  // Setup audio analysis
   const setupAudioAnalysis = (stream: MediaStream) => {
-    // Close existing audio context if any
-    if (audioContextRef.current) {
-      audioContextRef.current.close();
+    // Stop any existing audio analysis
+    stopAudioAnalysis();
+    
+    // If no audio context exists or it's closed, create a new one
+    if (!audioContextRef.current || audioContextRef.current.state === 'closed') {
+      const audioContext = new AudioContext();
+      audioContextRef.current = audioContext;
     }
     
-    // Cancel existing animation frame if any
-    if (animationFrameRef.current) {
-      cancelAnimationFrame(animationFrameRef.current);
-    }
-    
-    // Create new audio context
-    const audioContext = new AudioContext();
-    audioContextRef.current = audioContext;
-    
-    const analyser = audioContext.createAnalyser();
+    // Create new analyser or reuse existing one
+    const analyser = audioContextRef.current.createAnalyser();
     analyserRef.current = analyser;
     analyser.fftSize = 256;
     
-    const source = audioContext.createMediaStreamSource(stream);
-    source.connect(analyser);
+    // Create new source or disconnect and reuse existing one
+    if (audioSourceRef.current) {
+      audioSourceRef.current.disconnect();
+    }
+    
+    const source = audioContextRef.current.createMediaStreamSource(stream);
+    audioSourceRef.current = source;
+    
+    // Apply noise suppression settings if enabled
+    const noiseSuppressionSettings = localStorage.getItem('noiseSuppression');
+    if (noiseSuppressionSettings) {
+      const { enabled, threshold } = JSON.parse(noiseSuppressionSettings);
+      
+      if (enabled) {
+        // Create and configure a dynamic compressor node for noise suppression
+        const compressor = audioContextRef.current.createDynamicsCompressor();
+        compressor.threshold.value = -80 + threshold * 0.8; // Convert 0-100 scale to appropriate threshold
+        compressor.knee.value = 40;
+        compressor.ratio.value = 12;
+        compressor.attack.value = 0;
+        compressor.release.value = 0.25;
+        
+        // Connect source -> compressor -> analyser
+        source.connect(compressor);
+        compressor.connect(analyser);
+      } else {
+        // Connect source directly to analyser
+        source.connect(analyser);
+      }
+    } else {
+      // Connect source directly to analyser if no settings
+      source.connect(analyser);
+    }
     
     analyzeMicrophoneLevel();
   };
 
   const analyzeMicrophoneLevel = () => {
-    if (!analyserRef.current) return;
+    if (!analyserRef.current || !isMountedRef.current) return;
     
     const analyser = analyserRef.current;
     const dataArray = new Uint8Array(analyser.frequencyBinCount);
     
     const updateLevel = () => {
+      if (!analyserRef.current || !isMountedRef.current) return;
+      
       analyser.getByteFrequencyData(dataArray);
       
       const average = dataArray.reduce((acc, val) => acc + val, 0) / dataArray.length;
@@ -421,9 +527,7 @@ const VoicePage = () => {
     return () => {
       // Do NOT disconnect on unmount
       // Only stop audio analysis to save resources
-      if (animationFrameRef.current) {
-        cancelAnimationFrame(animationFrameRef.current);
-      }
+      stopAudioAnalysis();
     };
   }, []);
 
