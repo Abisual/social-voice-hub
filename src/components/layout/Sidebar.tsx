@@ -1,5 +1,5 @@
 
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Avatar } from '@/components/ui/avatar';
@@ -22,6 +22,18 @@ interface SidebarProps {
 const Sidebar: React.FC<SidebarProps> = ({ onClose }) => {
   const navigate = useNavigate();
   const isMobile = useIsMobile();
+  const [username, setUsername] = useState(() => {
+    return localStorage.getItem('username') || 'User';
+  });
+  
+  useEffect(() => {
+    const handleUsernameUpdate = () => {
+      setUsername(localStorage.getItem('username') || 'User');
+    };
+    
+    window.addEventListener('usernameUpdated', handleUsernameUpdate);
+    return () => window.removeEventListener('usernameUpdated', handleUsernameUpdate);
+  }, []);
   
   const handleLogout = () => {
     // Handle logout logic here
@@ -93,12 +105,12 @@ const Sidebar: React.FC<SidebarProps> = ({ onClose }) => {
           <div className="flex items-center gap-2">
             <Avatar className="h-10 w-10 border-2 border-primary">
               <div className="bg-accent rounded-full h-full w-full flex items-center justify-center">
-                <span className="font-medium text-xs">U</span>
+                <span className="font-medium text-xs">{username.charAt(0).toUpperCase()}</span>
               </div>
             </Avatar>
             <div>
-              <p className="text-sm font-medium line-clamp-1">User</p>
-              <p className="text-xs text-muted-foreground">user#1234</p>
+              <p className="text-sm font-medium line-clamp-1">{username}</p>
+              <p className="text-xs text-muted-foreground">{username}#1234</p>
             </div>
           </div>
           

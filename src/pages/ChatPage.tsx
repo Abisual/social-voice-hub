@@ -28,6 +28,9 @@ const ChatPage = () => {
   const [connected, setConnected] = useState(true);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const { toast } = useToast();
+  const [currentUsername, setCurrentUsername] = useState(() => {
+    return localStorage.getItem('username') || 'User';
+  });
 
   // Create a default welcome message
   function getDefaultMessage(): ChatMessageProps[] {
@@ -51,8 +54,7 @@ const ChatPage = () => {
   // Update username when it changes in settings
   useEffect(() => {
     const handleUsernameUpdate = () => {
-      // We don't need to update anything here as the Sidebar component
-      // will re-render with the new username automatically
+      setCurrentUsername(localStorage.getItem('username') || 'User');
     };
 
     window.addEventListener('usernameUpdated', handleUsernameUpdate);
@@ -77,14 +79,12 @@ const ChatPage = () => {
     
     setLoading(true);
     
-    const username = localStorage.getItem('username') || 'CurrentUser';
-    
     const newMessage: ChatMessageProps = {
       id: Date.now().toString(),
       content,
       sender: {
         id: 'currentUser',
-        username: username,
+        username: currentUsername,
         tag: '#1234',
       },
       timestamp: new Date(),

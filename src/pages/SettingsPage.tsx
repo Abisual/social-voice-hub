@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+
+import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -10,7 +11,7 @@ import { useToast } from '@/hooks/use-toast';
 
 const SettingsPage = () => {
   const [username, setUsername] = useState(() => {
-    return localStorage.getItem('username') || 'CurrentUser';
+    return localStorage.getItem('username') || 'User';
   });
   const [email, setEmail] = useState('user@example.com');
   const [password, setPassword] = useState('');
@@ -31,7 +32,20 @@ const SettingsPage = () => {
     return 50;
   });
   
+  // Added voice chat settings
+  const [echoCancel, setEchoCancel] = useState(() => {
+    return localStorage.getItem('echoCancel') === 'true';
+  });
+  
   const { toast } = useToast();
+  
+  // Update the username in the sidebar when component mounts
+  useEffect(() => {
+    const storedUsername = localStorage.getItem('username');
+    if (storedUsername) {
+      setUsername(storedUsername);
+    }
+  }, []);
   
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -57,6 +71,9 @@ const SettingsPage = () => {
         enabled: noiseSuppression,
         threshold: noiseThreshold
       }));
+      
+      // Save echo cancellation setting
+      localStorage.setItem('echoCancel', echoCancel.toString());
       
       toast({
         title: 'Settings saved',
@@ -227,6 +244,20 @@ const SettingsPage = () => {
                     </p>
                   </div>
                 )}
+                
+                <div className="flex items-center justify-between">
+                  <div className="space-y-0.5">
+                    <Label htmlFor="echo-cancel">Echo Cancellation</Label>
+                    <p className="text-sm text-muted-foreground">
+                      Reduces echo from your speakers
+                    </p>
+                  </div>
+                  <Switch
+                    id="echo-cancel"
+                    checked={echoCancel}
+                    onCheckedChange={setEchoCancel}
+                  />
+                </div>
               </div>
             </div>
             

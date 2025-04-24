@@ -6,15 +6,12 @@ import {
   MicOff,
   MonitorSmartphone,
   Users,
-  Volume2,
   PhoneOff
 } from 'lucide-react';
 import { Separator } from '@/components/ui/separator';
 import { useToast } from '@/hooks/use-toast';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import ScreenShareView from '@/components/voice/ScreenShareView';
-import { Switch } from '@/components/ui/switch';
-import { Label } from '@/components/ui/label';
 
 interface VoiceUserType {
   id: string;
@@ -27,9 +24,32 @@ interface VoiceUserType {
   volume: number;
 }
 
+// Create a static store for voice channel state that persists between component mounts
+type VoiceChannelStore = {
+  isConnected: boolean;
+  isConnecting: boolean;
+  audioStream: MediaStream | null;
+  screenShareStream: MediaStream | null;
+  isScreenSharing: boolean;
+  microphoneAccess: boolean | null;
+  voiceUsers: VoiceUserType[];
+  isMuted: boolean;
+};
+
+const voiceChannelStore: VoiceChannelStore = {
+  isConnected: false,
+  isConnecting: false,
+  audioStream: null,
+  screenShareStream: null,
+  isScreenSharing: false,
+  microphoneAccess: null,
+  voiceUsers: [],
+  isMuted: false
+};
+
 const CURRENT_USER: VoiceUserType = {
   id: 'currentUser',
-  username: 'You',
+  username: localStorage.getItem('username') || 'User',
   tag: '#1234',
   isSpeaking: false,
   isMuted: false,
@@ -38,21 +58,66 @@ const CURRENT_USER: VoiceUserType = {
 };
 
 const VoicePage = () => {
-  const [voiceUsers, setVoiceUsers] = useState<VoiceUserType[]>([CURRENT_USER]);
-  const [isMuted, setIsMuted] = useState(false);
-  const [isConnecting, setIsConnecting] = useState(false);
-  const [isConnected, setIsConnected] = useState(false);
-  const [microphoneAccess, setMicrophoneAccess] = useState<boolean | null>(null);
+  // Use the persisted store for initial state
+  const [voiceUsers, setVoiceUsers] = useState<VoiceUserType[]>(() => {
+    return voiceChannelStore.voiceUsers.length > 0 
+      ? voiceChannelStore.voiceUsers 
+      : [CURRENT_USER];
+  });
+  
+  const [isMuted, setIsMuted] = useState(voiceChannelStore.isMuted);
+  const [isConnecting, setIsConnecting] = useState(voiceChannelStore.isConnecting);
+  const [isConnected, setIsConnected] = useState(voiceChannelStore.isConnected);
+  const [microphoneAccess, setMicrophoneAccess] = useState<boolean | null>(voiceChannelStore.microphoneAccess);
   const [microphoneLevel, setMicrophoneLevel] = useState(0);
-  const [audioStream, setAudioStream] = useState<MediaStream | null>(null);
-  const [screenShareStream, setScreenShareStream] = useState<MediaStream | null>(null);
-  const [isScreenSharing, setIsScreenSharing] = useState(false);
+  const [audioStream, setAudioStream] = useState<MediaStream | null>(voiceChannelStore.audioStream);
+  const [screenShareStream, setScreenShareStream] = useState<MediaStream | null>(voiceChannelStore.screenShareStream);
+  const [isScreenSharing, setIsScreenSharing] = useState(voiceChannelStore.isScreenSharing);
   
   const audioContextRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
   const animationFrameRef = useRef<number | null>(null);
   
   const { toast } = useToast();
+  
+  // Update the store when state changes
+  useEffect(() => {
+    voiceChannelStore.isConnected = isConnected;
+    voiceChannelStore.isConnecting = isConnecting;
+    voiceChannelStore.audioStream = audioStream;
+    voiceChannelStore.screenShareStream = screenShareStream;
+    voiceChannelStore.isScreenSharing = isScreenSharing;
+    voiceChannelStore.microphoneAccess = microphoneAccess;
+    voiceChannelStore.voiceUsers = voiceUsers;
+    voiceChannelStore.isMuted = isMuted;
+  }, [
+    isConnected, 
+    isConnecting, 
+    audioStream, 
+    screenShareStream, 
+    isScreenSharing,
+    microphoneAccess,
+    voiceUsers,
+    isMuted
+  ]);
+  
+  // Update username when it changes
+  useEffect(() => {
+    const handleUsernameUpdate = () => {
+      const username = localStorage.getItem('username') || 'User';
+      
+      setVoiceUsers(prevUsers => 
+        prevUsers.map(user => 
+          user.id === 'currentUser' 
+            ? { ...user, username } 
+            : user
+        )
+      );
+    };
+    
+    window.addEventListener('usernameUpdated', handleUsernameUpdate);
+    return () => window.removeEventListener('usernameUpdated', handleUsernameUpdate);
+  }, []);
   
   const handleDisconnect = () => {
     if (audioStream) {
@@ -73,7 +138,7 @@ const VoicePage = () => {
     setAudioStream(null);
     setScreenShareStream(null);
     setMicrophoneAccess(null);
-    setVoiceUsers([CURRENT_USER]);
+    setVoiceUsers([{...CURRENT_USER, username: localStorage.getItem('username') || 'User'}]);
     
     toast({
       title: "Отключено от голосового чата",
@@ -97,24 +162,12 @@ const VoicePage = () => {
         });
         
         checkMicrophoneAccess();
-        
-        setVoiceUsers([
-          CURRENT_USER,
-          {
-            id: 'user1',
-            username: 'TechGuru',
-            tag: '#4253',
-            isSpeaking: false,
-            isMuted: false,
-            isLocalMuted: false,
-            volume: 80,
-          }
-        ]);
       }, 2000);
     }
     
     return () => {
-      handleDisconnect();
+      // DO NOT disconnect when navigating away
+      // We're using the static store to keep the connection active
     };
   }, []);
 
@@ -136,7 +189,7 @@ const VoicePage = () => {
       
       analyzeMicrophoneLevel();
       
-      const updatedUser = { ...CURRENT_USER, isMuted: false };
+      const updatedUser = { ...CURRENT_USER, isMuted: false, username: localStorage.getItem('username') || 'User' };
       updateVoiceUser(updatedUser);
       
       toast({
@@ -147,7 +200,7 @@ const VoicePage = () => {
       console.error('Ошибка доступа к микрофону:', error);
       setMicrophoneAccess(false);
       
-      const updatedUser = { ...CURRENT_USER, isMuted: true };
+      const updatedUser = { ...CURRENT_USER, isMuted: true, username: localStorage.getItem('username') || 'User' };
       updateVoiceUser(updatedUser);
       
       toast({
@@ -187,26 +240,6 @@ const VoicePage = () => {
     };
     
     updateLevel();
-  };
-
-  const startSimulation = () => {
-    const interval = setInterval(() => {
-      if (Math.random() > 0.5) {
-        setVoiceUsers((prevUsers) => 
-          prevUsers.map(user => {
-            if (user.id !== 'currentUser' && !user.isMuted) {
-              return {
-                ...user,
-                isSpeaking: Math.random() > 0.5
-              };
-            }
-            return user;
-          })
-        );
-      }
-    }, 2000);
-    
-    return () => clearInterval(interval);
   };
 
   const updateVoiceUser = (updatedUser: VoiceUserType) => {
@@ -318,7 +351,7 @@ const VoicePage = () => {
       
       toast({
         title: 'Ошибка демонстрации экрана',
-        description: 'Доступ не был предоста��лен',
+        description: 'Доступ не был предоставлен',
         variant: 'destructive',
       });
     }
@@ -439,32 +472,6 @@ const VoicePage = () => {
                 >
                   {isConnecting ? 'Подключение...' : 'Подключиться'}
                 </Button>
-              </div>
-            )}
-            
-            {isConnected && (
-              <div className="space-y-4 pt-4">
-                <h3 className="text-sm font-medium">Настройки голосового чата</h3>
-                
-                <div className="flex items-center justify-between">
-                  <div className="space-y-0.5">
-                    <Label htmlFor="reduce-noise">Шумоподавление</Label>
-                    <p className="text-sm text-muted-foreground">
-                      Автоматически уменьшает фоновый шум
-                    </p>
-                  </div>
-                  <Switch id="reduce-noise" defaultChecked />
-                </div>
-                
-                <div className="flex items-center justify-between">
-                  <div className="space-y-0.5">
-                    <Label htmlFor="echo-cancel">Эхоподавление</Label>
-                    <p className="text-sm text-muted-foreground">
-                      Подавляет эхо от динамиков
-                    </p>
-                  </div>
-                  <Switch id="echo-cancel" defaultChecked />
-                </div>
               </div>
             )}
           </div>
