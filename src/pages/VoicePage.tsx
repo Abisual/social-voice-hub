@@ -25,36 +25,79 @@ interface VoiceUserType {
   volume: number;
 }
 
-// Create a static store for voice channel state that persists between component mounts
-type VoiceChannelStore = {
-  isConnected: boolean;
-  isConnecting: boolean;
-  audioStream: MediaStream | null;
-  screenShareStream: MediaStream | null;
-  isScreenSharing: boolean;
-  microphoneAccess: boolean | null;
-  voiceUsers: VoiceUserType[];
-  isMuted: boolean;
-  hasInitialized: boolean;
-  audioContext: AudioContext | null;
-  analyser: AnalyserNode | null;
-  audioSource: MediaStreamAudioSourceNode | null;
-};
+// Create a global voice channel store that's accessible from window object
+declare global {
+  interface Window {
+    voiceChannelStore: {
+      isConnected: boolean;
+      isConnecting: boolean;
+      audioStream: MediaStream | null;
+      screenShareStream: MediaStream | null;
+      isScreenSharing: boolean;
+      microphoneAccess: boolean | null;
+      voiceUsers: VoiceUserType[];
+      isMuted: boolean;
+      hasInitialized: boolean;
+      audioContext: AudioContext | null;
+      analyser: AnalyserNode | null;
+      audioSource: MediaStreamAudioSourceNode | null;
+      disconnect: () => void;
+    };
+  }
+}
 
-const voiceChannelStore: VoiceChannelStore = {
-  isConnected: false,
-  isConnecting: false,
-  audioStream: null,
-  screenShareStream: null,
-  isScreenSharing: false,
-  microphoneAccess: null,
-  voiceUsers: [],
-  isMuted: false,
-  hasInitialized: false,
-  audioContext: null,
-  analyser: null,
-  audioSource: null
-};
+// Initialize global store if it doesn't exist
+if (typeof window !== 'undefined' && !window.voiceChannelStore) {
+  window.voiceChannelStore = {
+    isConnected: false,
+    isConnecting: false,
+    audioStream: null,
+    screenShareStream: null,
+    isScreenSharing: false,
+    microphoneAccess: null,
+    voiceUsers: [],
+    isMuted: false,
+    hasInitialized: false,
+    audioContext: null,
+    analyser: null,
+    audioSource: null,
+    disconnect: () => {
+      const store = window.voiceChannelStore;
+      
+      if (store.audioStream) {
+        store.audioStream.getTracks().forEach(track => track.stop());
+      }
+      if (store.screenShareStream) {
+        store.screenShareStream.getTracks().forEach(track => track.stop());
+      }
+      
+      if (store.audioContext && store.audioContext.state !== 'closed') {
+        store.audioContext.close();
+      }
+      
+      store.analyser = null;
+      store.audioSource = null;
+      store.isConnected = false;
+      store.isConnecting = false;
+      store.audioStream = null;
+      store.screenShareStream = null;
+      store.microphoneAccess = null;
+      store.voiceUsers = [{
+        id: 'currentUser',
+        username: localStorage.getItem('username') || 'User',
+        tag: '#1234',
+        isSpeaking: false,
+        isMuted: false,
+        isLocalMuted: false,
+        volume: 100,
+      }];
+      store.hasInitialized = false;
+      
+      // Notify subscribers
+      window.dispatchEvent(new CustomEvent('voiceStateUpdated'));
+    }
+  };
+}
 
 const CURRENT_USER: VoiceUserType = {
   id: 'currentUser',
@@ -67,42 +110,46 @@ const CURRENT_USER: VoiceUserType = {
 };
 
 const VoicePage = () => {
-  // Use the persisted store for initial state
+  // Use the global store for state
   const [voiceUsers, setVoiceUsers] = useState<VoiceUserType[]>(() => {
-    return voiceChannelStore.voiceUsers.length > 0 
-      ? voiceChannelStore.voiceUsers 
+    return window.voiceChannelStore.voiceUsers.length > 0 
+      ? window.voiceChannelStore.voiceUsers 
       : [CURRENT_USER];
   });
   
-  const [isMuted, setIsMuted] = useState(voiceChannelStore.isMuted);
-  const [isConnecting, setIsConnecting] = useState(voiceChannelStore.isConnecting);
-  const [isConnected, setIsConnected] = useState(voiceChannelStore.isConnected);
-  const [microphoneAccess, setMicrophoneAccess] = useState<boolean | null>(voiceChannelStore.microphoneAccess);
+  const [isMuted, setIsMuted] = useState(window.voiceChannelStore.isMuted);
+  const [isConnecting, setIsConnecting] = useState(window.voiceChannelStore.isConnecting);
+  const [isConnected, setIsConnected] = useState(window.voiceChannelStore.isConnected);
+  const [microphoneAccess, setMicrophoneAccess] = useState<boolean | null>(window.voiceChannelStore.microphoneAccess);
   const [microphoneLevel, setMicrophoneLevel] = useState(0);
-  const [audioStream, setAudioStream] = useState<MediaStream | null>(voiceChannelStore.audioStream);
-  const [screenShareStream, setScreenShareStream] = useState<MediaStream | null>(voiceChannelStore.screenShareStream);
-  const [isScreenSharing, setIsScreenSharing] = useState(voiceChannelStore.isScreenSharing);
+  const [audioStream, setAudioStream] = useState<MediaStream | null>(window.voiceChannelStore.audioStream);
+  const [screenShareStream, setScreenShareStream] = useState<MediaStream | null>(window.voiceChannelStore.screenShareStream);
+  const [isScreenSharing, setIsScreenSharing] = useState(window.voiceChannelStore.isScreenSharing);
   
-  const audioContextRef = useRef<AudioContext | null>(voiceChannelStore.audioContext);
-  const analyserRef = useRef<AnalyserNode | null>(voiceChannelStore.analyser);
-  const audioSourceRef = useRef<MediaStreamAudioSourceNode | null>(voiceChannelStore.audioSource);
+  const audioContextRef = useRef<AudioContext | null>(window.voiceChannelStore.audioContext);
+  const analyserRef = useRef<AnalyserNode | null>(window.voiceChannelStore.analyser);
+  const audioSourceRef = useRef<MediaStreamAudioSourceNode | null>(window.voiceChannelStore.audioSource);
   const animationFrameRef = useRef<number | null>(null);
   
   const { toast } = useToast();
   
   // Update the store when state changes
   useEffect(() => {
-    voiceChannelStore.isConnected = isConnected;
-    voiceChannelStore.isConnecting = isConnecting;
-    voiceChannelStore.audioStream = audioStream;
-    voiceChannelStore.screenShareStream = screenShareStream;
-    voiceChannelStore.isScreenSharing = isScreenSharing;
-    voiceChannelStore.microphoneAccess = microphoneAccess;
-    voiceChannelStore.voiceUsers = voiceUsers;
-    voiceChannelStore.isMuted = isMuted;
-    voiceChannelStore.audioContext = audioContextRef.current;
-    voiceChannelStore.analyser = analyserRef.current;
-    voiceChannelStore.audioSource = audioSourceRef.current;
+    const store = window.voiceChannelStore;
+    store.isConnected = isConnected;
+    store.isConnecting = isConnecting;
+    store.audioStream = audioStream;
+    store.screenShareStream = screenShareStream;
+    store.isScreenSharing = isScreenSharing;
+    store.microphoneAccess = microphoneAccess;
+    store.voiceUsers = voiceUsers;
+    store.isMuted = isMuted;
+    store.audioContext = audioContextRef.current;
+    store.analyser = analyserRef.current;
+    store.audioSource = audioSourceRef.current;
+    
+    // Notify subscribers
+    window.dispatchEvent(new CustomEvent('voiceStateUpdated'));
   }, [
     isConnected, 
     isConnecting, 
@@ -142,7 +189,7 @@ const VoicePage = () => {
       screenShareStream.getTracks().forEach(track => track.stop());
     }
     
-    if (audioContextRef.current) {
+    if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
       audioContextRef.current.close();
       audioContextRef.current = null;
     }
@@ -158,7 +205,7 @@ const VoicePage = () => {
     setVoiceUsers([{...CURRENT_USER, username: localStorage.getItem('username') || 'User'}]);
 
     // Reset the initialization flag to ensure we reconnect properly next time
-    voiceChannelStore.hasInitialized = false;
+    window.voiceChannelStore.hasInitialized = false;
     
     toast({
       title: "Отключено от голосового чата",
@@ -179,15 +226,15 @@ const VoicePage = () => {
     if (isConnected || isConnecting) return;
     
     // If we've already initialized the voice connection, just restore it
-    if (voiceChannelStore.hasInitialized && voiceChannelStore.audioStream) {
+    if (window.voiceChannelStore.hasInitialized && window.voiceChannelStore.audioStream) {
       console.log("Restoring voice connection from store");
-      setAudioStream(voiceChannelStore.audioStream);
+      setAudioStream(window.voiceChannelStore.audioStream);
       setIsConnected(true);
       setMicrophoneAccess(true);
       
       // Restart audio analysis if needed
-      if (voiceChannelStore.audioStream && (!analyserRef.current || !animationFrameRef.current)) {
-        setupAudioAnalysis(voiceChannelStore.audioStream);
+      if (window.voiceChannelStore.audioStream && (!analyserRef.current || !animationFrameRef.current)) {
+        setupAudioAnalysis(window.voiceChannelStore.audioStream);
       }
       return;
     }
@@ -208,7 +255,7 @@ const VoicePage = () => {
       });
       
       // Mark that we've initialized
-      voiceChannelStore.hasInitialized = true;
+      window.voiceChannelStore.hasInitialized = true;
       checkMicrophoneAccess();
     }, 2000);
 
@@ -228,12 +275,15 @@ const VoicePage = () => {
   // Focus effect to maintain microphone functionality when returning to the tab
   useEffect(() => {
     const handleVisibilityChange = () => {
-      if (document.visibilityState === 'visible' && voiceChannelStore.hasInitialized) {
+      if (document.visibilityState === 'visible' && window.voiceChannelStore.hasInitialized) {
         // Only recreate audio analysis if it's not active
-        if (voiceChannelStore.audioStream && !animationFrameRef.current && isMountedRef.current) {
+        if (window.voiceChannelStore.audioStream && !animationFrameRef.current && isMountedRef.current) {
           console.log("Restoring audio analysis on visibility change");
-          setupAudioAnalysis(voiceChannelStore.audioStream);
+          setupAudioAnalysis(window.voiceChannelStore.audioStream);
         }
+      } else if (document.visibilityState === 'hidden') {
+        // When tab is hidden, pause the analysis to save resources, but don't disconnect
+        stopAudioAnalysis();
       }
     };
 
@@ -242,15 +292,35 @@ const VoicePage = () => {
 
     // Add a focus handler to address tab navigation
     window.addEventListener('focus', () => {
-      if (voiceChannelStore.audioStream && !animationFrameRef.current && isMountedRef.current) {
+      if (window.voiceChannelStore.audioStream && !animationFrameRef.current && isMountedRef.current) {
         console.log("Restoring audio analysis on window focus");
-        setupAudioAnalysis(voiceChannelStore.audioStream);
+        setupAudioAnalysis(window.voiceChannelStore.audioStream);
       }
+    });
+
+    // When the window loses focus, pause analysis but don't disconnect
+    window.addEventListener('blur', () => {
+      stopAudioAnalysis();
     });
 
     return () => {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('focus', () => {});
+      window.removeEventListener('blur', () => {});
     };
+  }, []);
+
+  // Listen for noise suppression settings changes
+  useEffect(() => {
+    const handleSettingsChange = () => {
+      if (window.voiceChannelStore.audioStream && audioContextRef.current) {
+        // Re-setup audio analysis with new settings
+        setupAudioAnalysis(window.voiceChannelStore.audioStream);
+      }
+    };
+
+    window.addEventListener('voiceSettingsUpdated', handleSettingsChange);
+    return () => window.removeEventListener('voiceSettingsUpdated', handleSettingsChange);
   }, []);
 
   const checkMicrophoneAccess = async () => {
@@ -263,13 +333,10 @@ const VoicePage = () => {
       }
       
       console.log("Requesting new microphone access");
-      const noiseSuppressionEnabled = (() => {
-        const settings = localStorage.getItem('noiseSuppression');
-        if (settings) {
-          return JSON.parse(settings).enabled;
-        }
-        return false;
-      })();
+      const noiseSuppressionSettings = localStorage.getItem('noiseSuppression');
+      const noiseSuppressionEnabled = noiseSuppressionSettings
+        ? JSON.parse(noiseSuppressionSettings).enabled
+        : false;
 
       const echoCancelEnabled = localStorage.getItem('echoCancel') === 'true';
 
@@ -328,46 +395,78 @@ const VoicePage = () => {
     
     // If no audio context exists or it's closed, create a new one
     if (!audioContextRef.current || audioContextRef.current.state === 'closed') {
-      const audioContext = new AudioContext();
-      audioContextRef.current = audioContext;
+      try {
+        const audioContext = new AudioContext();
+        audioContextRef.current = audioContext;
+      } catch (error) {
+        console.error('Failed to create audio context:', error);
+        return;
+      }
+    } else if (audioContextRef.current.state === 'suspended') {
+      // Resume if suspended
+      audioContextRef.current.resume().catch(err => {
+        console.error('Failed to resume audio context:', err);
+      });
     }
     
     // Create new analyser or reuse existing one
-    const analyser = audioContextRef.current.createAnalyser();
-    analyserRef.current = analyser;
-    analyser.fftSize = 256;
+    let analyser: AnalyserNode;
+    try {
+      analyser = audioContextRef.current.createAnalyser();
+      analyserRef.current = analyser;
+      analyser.fftSize = 256;
+    } catch (error) {
+      console.error('Failed to create analyser:', error);
+      return;
+    }
     
     // Create new source or disconnect and reuse existing one
     if (audioSourceRef.current) {
-      audioSourceRef.current.disconnect();
+      try {
+        audioSourceRef.current.disconnect();
+      } catch (error) {
+        console.error('Failed to disconnect audio source:', error);
+      }
     }
     
-    const source = audioContextRef.current.createMediaStreamSource(stream);
-    audioSourceRef.current = source;
+    let source: MediaStreamAudioSourceNode;
+    try {
+      source = audioContextRef.current.createMediaStreamSource(stream);
+      audioSourceRef.current = source;
+    } catch (error) {
+      console.error('Failed to create media stream source:', error);
+      return;
+    }
     
     // Apply noise suppression settings if enabled
     const noiseSuppressionSettings = localStorage.getItem('noiseSuppression');
-    if (noiseSuppressionSettings) {
-      const { enabled, threshold } = JSON.parse(noiseSuppressionSettings);
-      
-      if (enabled) {
-        // Create and configure a dynamic compressor node for noise suppression
-        const compressor = audioContextRef.current.createDynamicsCompressor();
-        compressor.threshold.value = -80 + threshold * 0.8; // Convert 0-100 scale to appropriate threshold
-        compressor.knee.value = 40;
-        compressor.ratio.value = 12;
-        compressor.attack.value = 0;
-        compressor.release.value = 0.25;
+    try {
+      if (noiseSuppressionSettings) {
+        const { enabled, threshold } = JSON.parse(noiseSuppressionSettings);
         
-        // Connect source -> compressor -> analyser
-        source.connect(compressor);
-        compressor.connect(analyser);
+        if (enabled) {
+          // Create and configure a dynamic compressor node for noise suppression
+          const compressor = audioContextRef.current.createDynamicsCompressor();
+          compressor.threshold.value = -80 + threshold * 0.8; // Convert 0-100 scale to appropriate threshold
+          compressor.knee.value = 40;
+          compressor.ratio.value = 12;
+          compressor.attack.value = 0;
+          compressor.release.value = 0.25;
+          
+          // Connect source -> compressor -> analyser
+          source.connect(compressor);
+          compressor.connect(analyser);
+        } else {
+          // Connect source directly to analyser
+          source.connect(analyser);
+        }
       } else {
-        // Connect source directly to analyser
+        // Connect source directly to analyser if no settings
         source.connect(analyser);
       }
-    } else {
-      // Connect source directly to analyser if no settings
+    } catch (error) {
+      console.error('Failed to apply noise suppression:', error);
+      // Fallback to direct connection
       source.connect(analyser);
     }
     
@@ -383,25 +482,31 @@ const VoicePage = () => {
     const updateLevel = () => {
       if (!analyserRef.current || !isMountedRef.current) return;
       
-      analyser.getByteFrequencyData(dataArray);
-      
-      const average = dataArray.reduce((acc, val) => acc + val, 0) / dataArray.length;
-      const normalizedLevel = Math.min(100, Math.max(0, average * 1.5));
-      
-      setMicrophoneLevel(normalizedLevel);
-      
-      const isSpeakingThreshold = 15;
-      const isSpeaking = normalizedLevel > isSpeakingThreshold && !isMuted;
-      
-      setVoiceUsers((prevUsers) => 
-        prevUsers.map(user => 
-          user.id === 'currentUser' 
-            ? { ...user, isSpeaking } 
-            : user
-        )
-      );
-      
-      animationFrameRef.current = requestAnimationFrame(updateLevel);
+      try {
+        analyser.getByteFrequencyData(dataArray);
+        
+        const average = dataArray.reduce((acc, val) => acc + val, 0) / dataArray.length;
+        const normalizedLevel = Math.min(100, Math.max(0, average * 1.5));
+        
+        setMicrophoneLevel(normalizedLevel);
+        
+        const isSpeakingThreshold = 15;
+        const isSpeaking = normalizedLevel > isSpeakingThreshold && !isMuted;
+        
+        setVoiceUsers((prevUsers) => 
+          prevUsers.map(user => 
+            user.id === 'currentUser' 
+              ? { ...user, isSpeaking } 
+              : user
+          )
+        );
+        
+        animationFrameRef.current = requestAnimationFrame(updateLevel);
+      } catch (error) {
+        console.error('Error analyzing microphone level:', error);
+        // Try to restart analysis
+        animationFrameRef.current = requestAnimationFrame(updateLevel);
+      }
     };
     
     updateLevel();
