@@ -4,15 +4,9 @@ import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Separator } from '@/components/ui/separator';
 import { useToast } from '@/hooks/use-toast';
 
-type AuthMode = 'login' | 'register';
-
 const AuthForm = () => {
-  const [mode, setMode] = useState<AuthMode>('login');
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
   const [username, setUsername] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   
@@ -24,36 +18,23 @@ const AuthForm = () => {
     setIsLoading(true);
     
     try {
-      // For demo purposes, we'll simulate authentication
-      // In a real app, you would connect to your auth service here
-      if (mode === 'login') {
-        // Login logic would go here
-        console.log('Logging in with:', { email, password });
-        
-        // Simulate successful login
-        await new Promise(resolve => setTimeout(resolve, 1000));
-        toast({
-          title: 'Successfully logged in',
-          description: 'Welcome back!',
-        });
-        navigate('/chat');
-      } else {
-        // Registration logic would go here
-        console.log('Registering with:', { email, username, password });
-        
-        // Simulate successful registration
-        await new Promise(resolve => setTimeout(resolve, 1000));
-        toast({
-          title: 'Account created',
-          description: 'Your account has been created successfully.',
-        });
-        navigate('/chat');
-      }
-    } catch (error) {
-      console.error('Auth error:', error);
+      // Store username in localStorage
+      localStorage.setItem('username', username);
+      
       toast({
-        title: 'Authentication failed',
-        description: 'Please check your credentials and try again.',
+        title: 'Welcome!',
+        description: `You've joined as ${username}`,
+      });
+      
+      // Trigger username update event for other components
+      window.dispatchEvent(new Event('usernameUpdated'));
+      
+      navigate('/chat');
+    } catch (error) {
+      console.error('Error:', error);
+      toast({
+        title: 'Error',
+        description: 'Failed to join. Please try again.',
         variant: 'destructive',
       });
     } finally {
@@ -66,66 +47,22 @@ const AuthForm = () => {
       <div className="text-center mb-6">
         <h1 className="text-2xl font-bold text-primary mb-2">VoiceHub</h1>
         <p className="text-muted-foreground">
-          {mode === 'login' ? 'Sign in to your account' : 'Create a new account'}
+          Enter your nickname to start chatting
         </p>
       </div>
       
       <form onSubmit={handleSubmit} className="space-y-4">
-        {mode === 'register' && (
-          <div className="space-y-2">
-            <Label htmlFor="username">Username</Label>
-            <Input
-              id="username"
-              placeholder="yourusername"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              required
-              disabled={isLoading}
-            />
-          </div>
-        )}
-        
         <div className="space-y-2">
-          <Label htmlFor="email">Email</Label>
+          <Label htmlFor="username">Nickname</Label>
           <Input
-            id="email"
-            type="email"
-            placeholder="you@example.com"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
+            id="username"
+            placeholder="Enter your nickname"
+            value={username}
+            onChange={(e) => setUsername(e.target.value)}
             required
             disabled={isLoading}
-          />
-        </div>
-        
-        <div className="space-y-2">
-          <div className="flex items-center justify-between">
-            <Label htmlFor="password">Password</Label>
-            {mode === 'login' && (
-              <a 
-                href="#" 
-                className="text-xs text-primary hover:underline"
-                onClick={(e) => {
-                  e.preventDefault();
-                  // Handle forgot password
-                  toast({
-                    title: 'Password reset',
-                    description: 'Password reset functionality coming soon',
-                  });
-                }}
-              >
-                Forgot password?
-              </a>
-            )}
-          </div>
-          <Input
-            id="password"
-            type="password"
-            placeholder="••••••••"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            required
-            disabled={isLoading}
+            minLength={2}
+            maxLength={20}
           />
         </div>
         
@@ -134,73 +71,9 @@ const AuthForm = () => {
           className="w-full"
           disabled={isLoading}
         >
-          {isLoading
-            ? 'Please wait...'
-            : mode === 'login'
-              ? 'Sign In'
-              : 'Create Account'
-          }
+          {isLoading ? 'Joining...' : 'Join Chat'}
         </Button>
       </form>
-      
-      <div className="mt-6">
-        <div className="relative">
-          <div className="absolute inset-0 flex items-center">
-            <Separator />
-          </div>
-          <div className="relative flex justify-center text-xs uppercase">
-            <span className="bg-card px-2 text-muted-foreground">
-              Or continue with
-            </span>
-          </div>
-        </div>
-        
-        <div className="mt-4 flex gap-4">
-          <Button 
-            variant="outline"
-            className="w-full" 
-            disabled={isLoading}
-            onClick={() => {
-              toast({
-                title: 'Coming soon',
-                description: 'OAuth integration coming soon',
-              });
-            }}
-          >
-            Google
-          </Button>
-          <Button 
-            variant="outline"
-            className="w-full"  
-            disabled={isLoading}
-            onClick={() => {
-              toast({
-                title: 'Coming soon',
-                description: 'OAuth integration coming soon',
-              });
-            }}
-          >
-            Discord
-          </Button>
-        </div>
-        
-        <p className="text-center mt-6 text-sm">
-          {mode === 'login' 
-            ? "Don't have an account? "
-            : "Already have an account? "
-          }
-          <a
-            href="#"
-            className="text-primary hover:underline font-medium"
-            onClick={(e) => {
-              e.preventDefault();
-              setMode(mode === 'login' ? 'register' : 'login');
-            }}
-          >
-            {mode === 'login' ? 'Sign up' : 'Sign in'}
-          </a>
-        </p>
-      </div>
     </div>
   );
 };
