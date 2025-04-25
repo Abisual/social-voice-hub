@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import ChatMessage, { ChatMessageProps } from '@/components/chat/ChatMessage';
 import ChatInput from '@/components/chat/ChatInput';
@@ -79,8 +80,9 @@ const ChatPage = () => {
             content: msg.content,
             sender: {
               id: msg.user_id,
-              username: msg.users?.username || 'Unknown User',
-              tag: msg.users?.tag || '#0000',
+              // Fix: Correctly access the nested object's properties
+              username: msg.users ? msg.users.username : 'Unknown User',
+              tag: msg.users ? msg.users.tag : '#0000',
             },
             timestamp: new Date(msg.created_at),
           }));
