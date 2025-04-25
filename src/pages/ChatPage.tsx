@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import ChatMessage, { ChatMessageProps } from '@/components/chat/ChatMessage';
 import ChatInput from '@/components/chat/ChatInput';
@@ -7,11 +8,18 @@ import { createClient } from '@supabase/supabase-js';
 import { useNavigate } from 'react-router-dom';
 
 // Инициализируем клиент Supabase
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || '';
-const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+
+// Проверяем наличие значений и инициализируем клиент только при их наличии
 const supabase = supabaseUrl && supabaseKey 
   ? createClient(supabaseUrl, supabaseKey) 
   : null;
+
+// Выводим информацию о подключении к Supabase для отладки
+console.log('Supabase URL:', supabaseUrl);
+console.log('Supabase Key exists:', !!supabaseKey);
+console.log('Supabase client initialized:', !!supabase);
 
 // Define the message structure from Supabase
 interface SupabaseMessage {
@@ -250,7 +258,7 @@ const ChatPage = () => {
       <div className="border-b p-4">
         <h1 className="text-xl font-bold">Общий чат</h1>
         <p className="text-sm text-muted-foreground">
-          {connected ? "Подключено" : "Отключено"}
+          {connected ? (supabase ? "Подключено к Supabase" : "Локальный режим") : "Отключено"}
         </p>
       </div>
       

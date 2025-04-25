@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import VoiceUser from '@/components/voice/VoiceUser';
 import { Button } from '@/components/ui/button';
@@ -17,8 +18,10 @@ import { useNavigate } from 'react-router-dom';
 import { VoiceUserType } from '@/types/voice';
 
 // Инициализируем клиент Supabase
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || '';
-const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+
+// Проверяем наличие значений и инициализируем клиент только при их наличии
 const supabase = supabaseUrl && supabaseKey 
   ? createClient(supabaseUrl, supabaseKey) 
   : null;
@@ -409,7 +412,8 @@ if (typeof window !== 'undefined' && !window.voiceChannelStore) {
           : user
       );
       
-      if (currentUserId) {
+      const currentUserId = localStorage.getItem('userId');
+      if (currentUserId && supabase) {
         const voiceChannel = supabase.channel(`voice:${store.roomId}`);
         voiceChannel.track({
           user_id: currentUserId,
