@@ -25,9 +25,15 @@ import {
 import { useToast } from '@/hooks/use-toast';
 import { createClient } from '@supabase/supabase-js';
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
-const supabase = createClient(supabaseUrl, supabaseKey);
+// Use environment variables or fallback to empty strings initially
+// This prevents the error, but will need proper values to function correctly
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || '';
+const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
+
+// Initialize Supabase client only if we have the required values
+const supabase = supabaseUrl && supabaseKey 
+  ? createClient(supabaseUrl, supabaseKey) 
+  : null;
 
 interface SidebarProps {
   onClose?: () => void;
@@ -58,6 +64,11 @@ const Sidebar: React.FC<SidebarProps> = ({ onClose }) => {
     }
     
     const fetchUserInfo = async () => {
+      if (!supabase) {
+        console.error('Supabase client not initialized');
+        return;
+      }
+      
       try {
         const { data: userData, error } = await supabase
           .from('users')
@@ -82,6 +93,11 @@ const Sidebar: React.FC<SidebarProps> = ({ onClose }) => {
   
   useEffect(() => {
     const fetchActiveUsers = async () => {
+      if (!supabase) {
+        console.error('Supabase client not initialized');
+        return;
+      }
+      
       try {
         const { count, error } = await supabase
           .from('users')
@@ -100,17 +116,19 @@ const Sidebar: React.FC<SidebarProps> = ({ onClose }) => {
     
     fetchActiveUsers();
     
-    const channel = supabase.channel('users_presence');
-    
-    channel
-      .on('presence', { event: 'sync' }, () => {
-        fetchActiveUsers();
-      })
-      .subscribe();
+    if (supabase) {
+      const channel = supabase.channel('users_presence');
       
-    return () => {
-      channel.unsubscribe();
-    };
+      channel
+        .on('presence', { event: 'sync' }, () => {
+          fetchActiveUsers();
+        })
+        .subscribe();
+        
+      return () => {
+        channel.unsubscribe();
+      };
+    }
   }, []);
   
   useEffect(() => {
@@ -200,7 +218,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onClose }) => {
   
   const handleLogout = async () => {
     const userId = localStorage.getItem('userId');
-    if (userId) {
+    if (userId && supabase) {
       try {
         await supabase
           .from('users')

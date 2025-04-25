@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
@@ -7,10 +6,14 @@ import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
 import { createClient } from '@supabase/supabase-js';
 
-// Инициализируем клиент Supabase с URL и анонимным ключом
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
-const supabase = createClient(supabaseUrl, supabaseKey);
+// Use environment variables or fallback to empty strings initially
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || '';
+const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
+
+// Initialize Supabase client only if we have the required values
+const supabase = supabaseUrl && supabaseKey 
+  ? createClient(supabaseUrl, supabaseKey) 
+  : null;
 
 const AuthForm = () => {
   const [username, setUsername] = useState('');
@@ -24,6 +27,26 @@ const AuthForm = () => {
     setIsLoading(true);
     
     try {
+      // If Supabase is not initialized, use local storage only
+      if (!supabase) {
+        const userId = `user_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+        const userTag = '#' + Math.floor(1000 + Math.random() * 9000).toString();
+        
+        localStorage.setItem('userId', userId);
+        localStorage.setItem('username', username);
+        localStorage.setItem('userTag', userTag);
+        
+        toast({
+          title: 'Welcome!',
+          description: `You've joined as ${username} (Local Mode)`,
+        });
+        
+        window.dispatchEvent(new Event('usernameUpdated'));
+        
+        navigate('/chat');
+        return;
+      }
+      
       // Генерируем уникальный ID для пользователя
       const userId = `user_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
       

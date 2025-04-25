@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef } from 'react';
 import ChatMessage, { ChatMessageProps } from '@/components/chat/ChatMessage';
 import ChatInput from '@/components/chat/ChatInput';
@@ -8,13 +7,15 @@ import { createClient } from '@supabase/supabase-js';
 import { useNavigate } from 'react-router-dom';
 
 // Инициализируем клиент Supabase
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
-const supabase = createClient(supabaseUrl, supabaseKey);
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || '';
+const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
+const supabase = supabaseUrl && supabaseKey 
+  ? createClient(supabaseUrl, supabaseKey) 
+  : null;
 
 const ChatPage = () => {
   const [messages, setMessages] = useState<ChatMessageProps[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [loading, setIsLoading] = useState(false);
   const [connected, setConnected] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const { toast } = useToast();
@@ -35,6 +36,22 @@ const ChatPage = () => {
   useEffect(() => {
     const loadMessages = async () => {
       try {
+        if (!supabase) {
+          // If Supabase is not initialized, use local messages
+          setMessages([{
+            id: '1',
+            content: 'Welcome to the chat! (Local Mode - Supabase not connected)',
+            sender: {
+              id: 'system',
+              username: 'System',
+              tag: '#0000',
+            },
+            timestamp: new Date(),
+          }]);
+          setConnected(true);
+          return;
+        }
+
         // Получаем последние 50 сообщений из канала общего чата
         const { data, error } = await supabase
           .from('messages')
@@ -62,8 +79,8 @@ const ChatPage = () => {
             content: msg.content,
             sender: {
               id: msg.user_id,
-              username: msg.users.username,
-              tag: msg.users.tag,
+              username: msg.users?.username || 'Unknown User',
+              tag: msg.users?.tag || '#0000',
             },
             timestamp: new Date(msg.created_at),
           }));
@@ -100,42 +117,48 @@ const ChatPage = () => {
     loadMessages();
 
     // Подписка на новые сообщения через Supabase Realtime
-    const subscription = supabase
-      .channel('public:messages')
-      .on('postgres_changes', 
-        { 
-          event: 'INSERT', 
-          schema: 'public', 
-          table: 'messages',
-          filter: 'channel=eq.general'
-        }, 
-        async (payload) => {
-          // Получаем информацию о пользователе
-          const { data: userData } = await supabase
-            .from('users')
-            .select('username, tag')
-            .eq('id', payload.new.user_id)
-            .single();
+    let subscription: any;
+    
+    if (supabase) {
+      subscription = supabase
+        .channel('public:messages')
+        .on('postgres_changes', 
+          { 
+            event: 'INSERT', 
+            schema: 'public', 
+            table: 'messages',
+            filter: 'channel=eq.general'
+          }, 
+          async (payload) => {
+            // Получаем информацию о пользователе
+            const { data: userData } = await supabase
+              .from('users')
+              .select('username, tag')
+              .eq('id', payload.new.user_id)
+              .single();
+              
+            // Добавляем сообщение в список
+            const newMessage: ChatMessageProps = {
+              id: payload.new.id,
+              content: payload.new.content,
+              sender: {
+                id: payload.new.user_id,
+                username: userData?.username || 'Unknown User',
+                tag: userData?.tag || '#0000',
+              },
+              timestamp: new Date(payload.new.created_at),
+            };
             
-          // Добавляем сообщение в список
-          const newMessage: ChatMessageProps = {
-            id: payload.new.id,
-            content: payload.new.content,
-            sender: {
-              id: payload.new.user_id,
-              username: userData?.username || 'Unknown User',
-              tag: userData?.tag || '#0000',
-            },
-            timestamp: new Date(payload.new.created_at),
-          };
-          
-          setMessages(prev => [...prev, newMessage]);
-        }
-      )
-      .subscribe();
+            setMessages(prev => [...prev, newMessage]);
+          }
+        )
+        .subscribe();
+    }
 
     return () => {
-      subscription.unsubscribe();
+      if (subscription) {
+        subscription.unsubscribe();
+      }
     };
   }, [toast, navigate]);
 
@@ -165,9 +188,27 @@ const ChatPage = () => {
       return;
     }
     
-    setLoading(true);
+    setIsLoading(true);
     
     try {
+      if (!supabase) {
+        // Local mode - just add to local messages
+        const newMessage: ChatMessageProps = {
+          id: Date.now().toString(),
+          content,
+          sender: {
+            id: currentUserId,
+            username: currentUsername,
+            tag: localStorage.getItem('userTag') || '#0000',
+          },
+          timestamp: new Date(),
+        };
+        
+        setMessages(prev => [...prev, newMessage]);
+        setIsLoading(false);
+        return;
+      }
+      
       // Отправляем сообщение в Supabase
       const { error } = await supabase
         .from('messages')
@@ -187,7 +228,7 @@ const ChatPage = () => {
         variant: "destructive"
       });
     } finally {
-      setLoading(false);
+      setIsLoading(false);
     }
   };
   
