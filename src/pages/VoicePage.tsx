@@ -12,6 +12,13 @@ import { Separator } from '@/components/ui/separator';
 import { useToast } from '@/hooks/use-toast';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import ScreenShareView from '@/components/voice/ScreenShareView';
+import { createClient } from '@supabase/supabase-js';
+import { useNavigate } from 'react-router-dom';
+
+// Инициализируем клиент Supabase
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+const supabase = createClient(supabaseUrl, supabaseKey);
 
 interface VoiceUserType {
   id: string;
@@ -40,11 +47,15 @@ declare global {
       audioContext: AudioContext | null;
       analyser: AnalyserNode | null;
       audioSource: MediaStreamAudioSourceNode | null;
+      peerConnections: Record<string, RTCPeerConnection>;
+      roomId: string;
       disconnect: () => void;
       reconnect: () => Promise<boolean>;
       toggleMute: () => void;
       stopScreenShare: () => void;
       startScreenShare: () => Promise<boolean>;
+      joinVoiceChannel: (roomId: string) => Promise<boolean>;
+      leaveVoiceChannel: () => void;
     };
   }
 }
@@ -64,10 +75,15 @@ if (typeof window !== 'undefined' && !window.voiceChannelStore) {
     audioContext: null,
     analyser: null,
     audioSource: null,
+    peerConnections: {},
+    roomId: 'general',
     
     // Disconnect function
     disconnect: () => {
       const store = window.voiceChannelStore;
+      
+      // Leave voice channel
+      store.leaveVoiceChannel();
       
       // Stop audio analysis first
       if (store.audioContext && store.audioContext.state !== 'closed') {
@@ -95,8 +111,7 @@ if (typeof window !== 'undefined' && !window.voiceChannelStore) {
       store.microphoneAccess = null;
       store.voiceUsers = [];
       store.hasInitialized = false;
-      
-      // Don't close audio context, just suspend it for faster reconnection
+      store.peerConnections = {};
       
       // Notify subscribers
       window.dispatchEvent(new CustomEvent('voiceStateUpdated'));
@@ -154,17 +169,8 @@ if (typeof window !== 'undefined' && !window.voiceChannelStore) {
           track.enabled = !store.isMuted;
         });
         
-        // Setup mock users for now
-        const username = localStorage.getItem('username') || 'User';
-        store.voiceUsers = [{
-          id: 'currentUser',
-          username,
-          tag: '#1234',
-          isSpeaking: false,
-          isMuted: store.isMuted,
-          isLocalMuted: false,
-          volume: 100
-        }];
+        // Join voice channel
+        await store.joinVoiceChannel(store.roomId);
         
         // Notify subscribers
         window.dispatchEvent(new CustomEvent('voiceStateUpdated'));
@@ -174,6 +180,265 @@ if (typeof window !== 'undefined' && !window.voiceChannelStore) {
         store.isConnecting = false;
         window.dispatchEvent(new CustomEvent('voiceStateUpdated'));
         return false;
+      }
+    },
+    
+    // Join voice channel using Supabase for signaling
+    joinVoiceChannel: async (roomId) => {
+      const store = window.voiceChannelStore;
+      
+      if (!store.audioStream) return false;
+      
+      const currentUserId = localStorage.getItem('userId');
+      if (!currentUserId) return false;
+      
+      store.roomId = roomId;
+      
+      try {
+        // Update user status in database
+        await supabase
+          .from('users')
+          .update({ 
+            voice_status: 'active',
+            voice_channel: roomId,
+            last_active: new Date()
+          })
+          .eq('id', currentUserId);
+        
+        // Setup username for current user
+        const username = localStorage.getItem('username') || 'User';
+        const currentUser = {
+          id: currentUserId,
+          username,
+          tag: '#1234', // This should be stored in localStorage too
+          isSpeaking: false,
+          isMuted: store.isMuted,
+          isLocalMuted: false,
+          volume: 100
+        };
+        
+        // Add current user to voice users list
+        store.voiceUsers = [currentUser];
+        
+        // Subscribe to voice channel presence
+        const voiceChannel = supabase.channel(`voice:${roomId}`);
+        
+        // Handle joining users
+        voiceChannel.on('presence', { event: 'join' }, async ({ key, newPresences }) => {
+          for (const presence of newPresences) {
+            // Skip if it's the current user
+            if (presence.user_id === currentUserId) continue;
+            
+            // Get user data
+            const { data: userData } = await supabase
+              .from('users')
+              .select('username, tag')
+              .eq('id', presence.user_id)
+              .single();
+              
+            if (!userData) continue;
+            
+            // Add user to voice users list
+            const newUser = {
+              id: presence.user_id,
+              username: userData.username,
+              tag: userData.tag,
+              isSpeaking: false,
+              isMuted: presence.is_muted || false,
+              isLocalMuted: false,
+              volume: 100
+            };
+            
+            store.voiceUsers.push(newUser);
+            
+            // Initiate WebRTC connection to new user
+            createPeerConnection(presence.user_id);
+            
+            // Notify subscribers
+            window.dispatchEvent(new CustomEvent('voiceStateUpdated'));
+          }
+        });
+        
+        // Handle leaving users
+        voiceChannel.on('presence', { event: 'leave' }, ({ key, leftPresences }) => {
+          for (const presence of leftPresences) {
+            // Remove user from voice users list
+            store.voiceUsers = store.voiceUsers.filter(user => user.id !== presence.user_id);
+            
+            // Close peer connection
+            if (store.peerConnections[presence.user_id]) {
+              store.peerConnections[presence.user_id].close();
+              delete store.peerConnections[presence.user_id];
+            }
+            
+            // Notify subscribers
+            window.dispatchEvent(new CustomEvent('voiceStateUpdated'));
+          }
+        });
+        
+        // Handle WebRTC signaling
+        voiceChannel.on('broadcast', { event: 'webrtc' }, async (payload) => {
+          const { type, from, to, data } = payload;
+          
+          if (to !== currentUserId) return;
+          
+          if (type === 'offer') {
+            // Create peer connection if it doesn't exist
+            if (!store.peerConnections[from]) {
+              createPeerConnection(from);
+            }
+            
+            const pc = store.peerConnections[from];
+            await pc.setRemoteDescription(new RTCSessionDescription(data));
+            
+            // Create answer
+            const answer = await pc.createAnswer();
+            await pc.setLocalDescription(answer);
+            
+            // Send answer
+            voiceChannel.send({
+              type: 'broadcast',
+              event: 'webrtc',
+              payload: {
+                type: 'answer',
+                from: currentUserId,
+                to: from,
+                data: answer
+              }
+            });
+          }
+          
+          else if (type === 'answer') {
+            const pc = store.peerConnections[from];
+            if (pc) {
+              await pc.setRemoteDescription(new RTCSessionDescription(data));
+            }
+          }
+          
+          else if (type === 'ice-candidate') {
+            const pc = store.peerConnections[from];
+            if (pc) {
+              await pc.addIceCandidate(new RTCIceCandidate(data));
+            }
+          }
+        });
+        
+        // Track current user's presence
+        voiceChannel.track({
+          user_id: currentUserId,
+          is_muted: store.isMuted
+        });
+        
+        await voiceChannel.subscribe();
+        
+        // Function to create peer connection
+        async function createPeerConnection(remoteUserId: string) {
+          const pc = new RTCPeerConnection({
+            iceServers: [
+              { urls: 'stun:stun.l.google.com:19302' },
+              { urls: 'stun:stun1.l.google.com:19302' }
+            ]
+          });
+          
+          // Add local stream
+          store.audioStream!.getTracks().forEach(track => {
+            pc.addTrack(track, store.audioStream!);
+          });
+          
+          // Handle ICE candidates
+          pc.onicecandidate = (event) => {
+            if (event.candidate) {
+              voiceChannel.send({
+                type: 'broadcast',
+                event: 'webrtc',
+                payload: {
+                  type: 'ice-candidate',
+                  from: currentUserId,
+                  to: remoteUserId,
+                  data: event.candidate
+                }
+              });
+            }
+          };
+          
+          // Handle remote stream
+          pc.ontrack = (event) => {
+            // Create audio element for remote stream
+            const audioEl = new Audio();
+            audioEl.srcObject = event.streams[0];
+            audioEl.autoplay = true;
+            audioEl.dataset.userId = remoteUserId;
+            
+            // Add reference to the audio element
+            document.body.appendChild(audioEl);
+            
+            // Clean up on track ended
+            event.track.onended = () => {
+              document.querySelectorAll(`audio[data-user-id="${remoteUserId}"]`).forEach(el => el.remove());
+            };
+          };
+          
+          // Store peer connection
+          store.peerConnections[remoteUserId] = pc;
+          
+          // Create and send offer
+          const offer = await pc.createOffer();
+          await pc.setLocalDescription(offer);
+          
+          voiceChannel.send({
+            type: 'broadcast',
+            event: 'webrtc',
+            payload: {
+              type: 'offer',
+              from: currentUserId,
+              to: remoteUserId,
+              data: offer
+            }
+          });
+          
+          return pc;
+        }
+        
+        return true;
+      } catch (error) {
+        console.error('Error joining voice channel:', error);
+        return false;
+      }
+    },
+    
+    // Leave voice channel
+    leaveVoiceChannel: () => {
+      const currentUserId = localStorage.getItem('userId');
+      if (!currentUserId) return;
+      
+      try {
+        // Leave Supabase channel
+        const voiceChannel = supabase.channel(`voice:${window.voiceChannelStore.roomId}`);
+        voiceChannel.unsubscribe();
+        
+        // Close all peer connections
+        for (const userId in window.voiceChannelStore.peerConnections) {
+          window.voiceChannelStore.peerConnections[userId].close();
+        }
+        
+        window.voiceChannelStore.peerConnections = {};
+        
+        // Update user status in database
+        supabase
+          .from('users')
+          .update({ 
+            voice_status: 'inactive',
+            voice_channel: null,
+            last_active: new Date()
+          })
+          .eq('id', currentUserId)
+          .then(() => {
+            // Remove all audio elements
+            document.querySelectorAll('audio[data-user-id]').forEach(el => el.remove());
+          });
+          
+      } catch (error) {
+        console.error('Error leaving voice channel:', error);
       }
     },
     
@@ -193,10 +458,20 @@ if (typeof window !== 'undefined' && !window.voiceChannelStore) {
       
       // Update user state
       store.voiceUsers = store.voiceUsers.map(user => 
-        user.id === 'currentUser' 
+        user.id === localStorage.getItem('userId')
           ? { ...user, isMuted: newMutedState, isSpeaking: false } 
           : user
       );
+      
+      // Update mute state in signaling channel
+      const currentUserId = localStorage.getItem('userId');
+      if (currentUserId) {
+        const voiceChannel = supabase.channel(`voice:${store.roomId}`);
+        voiceChannel.track({
+          user_id: currentUserId,
+          is_muted: newMutedState
+        });
+      }
       
       // Notify subscribers
       window.dispatchEvent(new CustomEvent('voiceStateUpdated'));
@@ -282,6 +557,17 @@ const VoicePage = () => {
   const animationFrameRef = useRef<number | null>(null);
   
   const { toast } = useToast();
+  const navigate = useNavigate();
+  
+  // Проверяем авторизацию
+  useEffect(() => {
+    const userId = localStorage.getItem('userId');
+    const username = localStorage.getItem('username');
+    
+    if (!userId || !username) {
+      navigate('/login');
+    }
+  }, [navigate]);
   
   // Update global store when state changes
   useEffect(() => {
@@ -596,7 +882,7 @@ const VoicePage = () => {
         
         setVoiceUsers((prevUsers) => 
           prevUsers.map(user => 
-            user.id === 'currentUser' 
+            user.id === localStorage.getItem('userId')
               ? { ...user, isSpeaking } 
               : user
           )
@@ -604,7 +890,7 @@ const VoicePage = () => {
         
         // Update global store
         window.voiceChannelStore.voiceUsers = window.voiceChannelStore.voiceUsers.map(user => 
-          user.id === 'currentUser' 
+          user.id === localStorage.getItem('userId')
             ? { ...user, isSpeaking } 
             : user
         );
@@ -640,7 +926,7 @@ const VoicePage = () => {
 
   // Toggle mute
   const handleToggleMute = (userId: string) => {
-    if (userId !== 'currentUser') return;
+    if (userId !== localStorage.getItem('userId')) return;
     
     // Use the global toggleMute function
     window.voiceChannelStore.toggleMute();
@@ -652,7 +938,7 @@ const VoicePage = () => {
 
   // Toggle local mute
   const handleToggleLocalMute = (userId: string) => {
-    if (userId === 'currentUser') return;
+    if (userId === localStorage.getItem('userId')) return;
     
     const user = voiceUsers.find(u => u.id === userId);
     if (!user) return;
@@ -746,7 +1032,7 @@ const VoicePage = () => {
             
             <Button
               variant={isMuted ? 'destructive' : 'default'}
-              onClick={() => handleToggleMute('currentUser')}
+              onClick={() => handleToggleMute(localStorage.getItem('userId') || '')}
               className="gap-2"
               disabled={!isConnected || microphoneAccess === false}
             >
@@ -757,7 +1043,7 @@ const VoicePage = () => {
                 </>
               ) : (
                 <>
-                  <Mic className={`h-4 w-4 ${voiceUsers.find(u => u.id === 'currentUser')?.isSpeaking ? 'animate-pulse text-green-400' : ''}`} />
+                  <Mic className={`h-4 w-4 ${voiceUsers.find(u => u.id === localStorage.getItem('userId'))?.isSpeaking ? 'animate-pulse text-green-400' : ''}`} />
                   <span className="hidden sm:inline">Выключить</span>
                 </>
               )}
@@ -815,7 +1101,7 @@ const VoicePage = () => {
                   onToggleMute={handleToggleMute}
                   onToggleLocalMute={handleToggleLocalMute}
                   onVolumeChange={handleVolumeChange}
-                  isSelf={user.id === 'currentUser'}
+                  isSelf={user.id === localStorage.getItem('userId')}
                 />
               ))}
             </div>

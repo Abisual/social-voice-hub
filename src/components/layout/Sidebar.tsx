@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
@@ -24,6 +23,11 @@ import {
   TooltipTrigger
 } from '@/components/ui/tooltip';
 import { useToast } from '@/hooks/use-toast';
+import { createClient } from '@supabase/supabase-js';
+
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+const supabase = createClient(supabaseUrl, supabaseKey);
 
 interface SidebarProps {
   onClose?: () => void;
@@ -38,11 +42,76 @@ const Sidebar: React.FC<SidebarProps> = ({ onClose }) => {
     return localStorage.getItem('username') || 'User';
   });
   
-  // Voice channel state
+  const [userTag, setUserTag] = useState('#1234');
+  const [activeUsers, setActiveUsers] = useState(0);
+  
   const [isVoiceConnected, setIsVoiceConnected] = useState(false);
   const [isVoiceConnecting, setIsVoiceConnecting] = useState(false);
   const [isMicMuted, setIsMicMuted] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
+  
+  useEffect(() => {
+    const userId = localStorage.getItem('userId');
+    if (!userId) {
+      navigate('/login');
+      return;
+    }
+    
+    const fetchUserInfo = async () => {
+      try {
+        const { data: userData, error } = await supabase
+          .from('users')
+          .select('username, tag')
+          .eq('id', userId)
+          .single();
+          
+        if (error) throw error;
+        
+        if (userData) {
+          setUsername(userData.username);
+          localStorage.setItem('username', userData.username);
+          setUserTag(userData.tag);
+        }
+      } catch (error) {
+        console.error('Error fetching user info:', error);
+      }
+    };
+    
+    fetchUserInfo();
+  }, [navigate]);
+  
+  useEffect(() => {
+    const fetchActiveUsers = async () => {
+      try {
+        const { count, error } = await supabase
+          .from('users')
+          .select('*', { count: 'exact' })
+          .gt('last_active', new Date(Date.now() - 5 * 60 * 1000).toISOString());
+          
+        if (error) throw error;
+        
+        if (count !== null) {
+          setActiveUsers(count);
+        }
+      } catch (error) {
+        console.error('Error fetching active users count:', error);
+      }
+    };
+    
+    fetchActiveUsers();
+    
+    const channel = supabase.channel('users_presence');
+    
+    channel
+      .on('presence', { event: 'sync' }, () => {
+        fetchActiveUsers();
+      })
+      .subscribe();
+      
+    return () => {
+      channel.unsubscribe();
+    };
+  }, []);
   
   useEffect(() => {
     const handleUsernameUpdate = () => {
@@ -53,31 +122,24 @@ const Sidebar: React.FC<SidebarProps> = ({ onClose }) => {
     return () => window.removeEventListener('usernameUpdated', handleUsernameUpdate);
   }, []);
   
-  // Voice channel state synchronization - improved reliability
   useEffect(() => {
     const updateVoiceState = () => {
-      // Check if store exists
       if (!window.voiceChannelStore) return;
       
-      // Get state from the global voice store
       setIsVoiceConnected(window.voiceChannelStore.isConnected);
       setIsVoiceConnecting(window.voiceChannelStore.isConnecting);
       setIsMicMuted(window.voiceChannelStore.isMuted);
       
-      // Check if local user is speaking
-      const currentUser = window.voiceChannelStore.voiceUsers?.find(u => u.id === 'currentUser');
+      const currentUser = window.voiceChannelStore.voiceUsers?.find(u => u.id === localStorage.getItem('userId'));
       if (currentUser) {
         setIsSpeaking(currentUser.isSpeaking);
       }
     };
     
-    // Initial update
     updateVoiceState();
     
-    // Listen for voice state changes
     window.addEventListener('voiceStateUpdated', updateVoiceState);
     
-    // Regular polling as a fallback
     const intervalId = setInterval(updateVoiceState, 500);
     
     return () => {
@@ -89,7 +151,6 @@ const Sidebar: React.FC<SidebarProps> = ({ onClose }) => {
   const handleToggleMute = () => {
     if (!isVoiceConnected || !window.voiceChannelStore) return;
     
-    // Use the global toggleMute function
     window.voiceChannelStore.toggleMute();
     
     toast({
@@ -100,7 +161,6 @@ const Sidebar: React.FC<SidebarProps> = ({ onClose }) => {
   const handleDisconnect = () => {
     if (!isVoiceConnected || !window.voiceChannelStore) return;
     
-    // Use the global disconnect function
     window.voiceChannelStore.disconnect();
     
     toast({
@@ -138,8 +198,22 @@ const Sidebar: React.FC<SidebarProps> = ({ onClose }) => {
     }
   };
   
-  const handleLogout = () => {
-    // Handle logout logic here
+  const handleLogout = async () => {
+    const userId = localStorage.getItem('userId');
+    if (userId) {
+      try {
+        await supabase
+          .from('users')
+          .update({ status: 'offline' })
+          .eq('id', userId);
+      } catch (error) {
+        console.error('Error updating user status:', error);
+      }
+    }
+    
+    localStorage.removeItem('userId');
+    localStorage.removeItem('username');
+    
     navigate('/login');
   };
   
@@ -170,6 +244,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onClose }) => {
         >
           <MessageSquare className="h-5 w-5" />
           <span>General Chat</span>
+          <span className="ml-auto text-xs text-muted-foreground">{activeUsers}</span>
         </NavLink>
         
         <NavLink 
@@ -234,7 +309,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onClose }) => {
             </Avatar>
             <div>
               <p className="text-sm font-medium line-clamp-1">{username}</p>
-              <p className="text-xs text-muted-foreground">{username}#1234</p>
+              <p className="text-xs text-muted-foreground">{username + userTag}</p>
             </div>
           </div>
           

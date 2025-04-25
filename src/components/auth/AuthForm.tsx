@@ -5,6 +5,12 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
+import { createClient } from '@supabase/supabase-js';
+
+// Инициализируем клиент Supabase с URL и анонимным ключом
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+const supabase = createClient(supabaseUrl, supabaseKey);
 
 const AuthForm = () => {
   const [username, setUsername] = useState('');
@@ -18,7 +24,26 @@ const AuthForm = () => {
     setIsLoading(true);
     
     try {
-      // Store username in localStorage
+      // Генерируем уникальный ID для пользователя
+      const userId = `user_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      
+      // Добавляем пользователя в Supabase с временным статусом
+      const { error: userError } = await supabase
+        .from('users')
+        .insert([
+          { 
+            id: userId, 
+            username: username,
+            tag: '#' + Math.floor(1000 + Math.random() * 9000).toString(),
+            last_active: new Date(),
+            status: 'online'
+          }
+        ]);
+        
+      if (userError) throw userError;
+      
+      // Сохраняем ID и имя пользователя в localStorage
+      localStorage.setItem('userId', userId);
       localStorage.setItem('username', username);
       
       toast({
@@ -26,7 +51,7 @@ const AuthForm = () => {
         description: `You've joined as ${username}`,
       });
       
-      // Trigger username update event for other components
+      // Активируем подписку на обновления
       window.dispatchEvent(new Event('usernameUpdated'));
       
       navigate('/chat');
