@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef } from 'react';
 import ChatMessage, { ChatMessageProps } from '@/components/chat/ChatMessage';
 import ChatInput from '@/components/chat/ChatInput';
@@ -88,13 +87,13 @@ const ChatPage = () => {
 
         if (data) {
           // Преобразуем данные из БД в формат наших компонентов
-          const formattedMessages: ChatMessageProps[] = data.map((msg: SupabaseMessage) => ({
+          const formattedMessages: ChatMessageProps[] = data.map((msg: any) => ({
             id: msg.id,
             content: msg.content,
             sender: {
               id: msg.user_id,
-              username: msg.users.username || 'Unknown User',
-              tag: msg.users.tag || '#0000',
+              username: msg.users?.username || 'Unknown User',
+              tag: msg.users?.tag || '#0000',
             },
             timestamp: new Date(msg.created_at),
           }));

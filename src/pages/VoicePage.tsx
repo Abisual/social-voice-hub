@@ -14,6 +14,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import ScreenShareView from '@/components/voice/ScreenShareView';
 import { createClient } from '@supabase/supabase-js';
 import { useNavigate } from 'react-router-dom';
+import { VoiceUserType } from '@/types/voice';
 
 // Инициализируем клиент Supabase
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || '';
@@ -69,34 +70,28 @@ if (typeof window !== 'undefined' && !window.voiceChannelStore) {
     peerConnections: {},
     roomId: 'general',
     
-    // Disconnect function
     disconnect: () => {
       const store = window.voiceChannelStore;
       
-      // Leave voice channel
       store.leaveVoiceChannel();
       
-      // Stop audio analysis first
       if (store.audioContext && store.audioContext.state !== 'closed') {
         store.audioContext.suspend().catch(err => {
           console.error('Error suspending audio context:', err);
         });
       }
       
-      // Stop screen share if active
       if (store.screenShareStream) {
         store.screenShareStream.getTracks().forEach(track => track.stop());
         store.screenShareStream = null;
         store.isScreenSharing = false;
       }
       
-      // Stop audio stream
       if (store.audioStream) {
         store.audioStream.getTracks().forEach(track => track.stop());
         store.audioStream = null;
       }
       
-      // Reset state
       store.isConnected = false;
       store.isConnecting = false;
       store.microphoneAccess = null;
@@ -104,20 +99,15 @@ if (typeof window !== 'undefined' && !window.voiceChannelStore) {
       store.hasInitialized = false;
       store.peerConnections = {};
       
-      // Notify subscribers
       window.dispatchEvent(new CustomEvent('voiceStateUpdated'));
     },
     
-    // Reconnect function
     reconnect: async () => {
       const store = window.voiceChannelStore;
       
-      // If already connecting, don't try again
       if (store.isConnecting) return false;
       
-      // If already connected, disconnect first
       if (store.isConnected) {
-        // Just reset flags but keep resources
         store.isConnected = false;
         window.dispatchEvent(new CustomEvent('voiceStateUpdated'));
       }
@@ -126,7 +116,6 @@ if (typeof window !== 'undefined' && !window.voiceChannelStore) {
       window.dispatchEvent(new CustomEvent('voiceStateUpdated'));
       
       try {
-        // Request microphone access
         const noiseSuppressionSettings = localStorage.getItem('noiseSuppression');
         const noiseSuppressionEnabled = noiseSuppressionSettings
           ? JSON.parse(noiseSuppressionSettings).enabled
@@ -143,27 +132,22 @@ if (typeof window !== 'undefined' && !window.voiceChannelStore) {
         
         const stream = await navigator.mediaDevices.getUserMedia(constraints);
         
-        // If we have an existing audio context, resume it
         if (store.audioContext && store.audioContext.state === 'suspended') {
           await store.audioContext.resume();
         }
         
-        // Update state
         store.audioStream = stream;
         store.isConnected = true;
         store.isConnecting = false;
         store.microphoneAccess = true;
         store.hasInitialized = true;
         
-        // Apply muted state
         stream.getAudioTracks().forEach(track => {
           track.enabled = !store.isMuted;
         });
         
-        // Join voice channel
         await store.joinVoiceChannel(store.roomId);
         
-        // Notify subscribers
         window.dispatchEvent(new CustomEvent('voiceStateUpdated'));
         return true;
       } catch (error) {
@@ -174,7 +158,6 @@ if (typeof window !== 'undefined' && !window.voiceChannelStore) {
       }
     },
     
-    // Join voice channel using Supabase for signaling
     joinVoiceChannel: async (roomId) => {
       const store = window.voiceChannelStore;
       
@@ -186,9 +169,7 @@ if (typeof window !== 'undefined' && !window.voiceChannelStore) {
       store.roomId = roomId;
       
       try {
-        // Skip Supabase operations if client is not initialized
         if (supabase) {
-          // Update user status in database
           await supabase
             .from('users')
             .update({ 
@@ -199,37 +180,30 @@ if (typeof window !== 'undefined' && !window.voiceChannelStore) {
             .eq('id', currentUserId);
         }
         
-        // Setup username for current user
         const username = localStorage.getItem('username') || 'User';
         const currentUser = {
           id: currentUserId,
           username,
-          tag: '#1234', // This should be stored in localStorage too
+          tag: '#1234',
           isSpeaking: false,
           isMuted: store.isMuted,
           isLocalMuted: false,
           volume: 100
         };
         
-        // Add current user to voice users list
         store.voiceUsers = [currentUser];
         
-        // Skip signaling setup if Supabase client is not initialized
         if (!supabase) {
           window.dispatchEvent(new CustomEvent('voiceStateUpdated'));
           return true;
         }
         
-        // Subscribe to voice channel presence
         const voiceChannel = supabase.channel(`voice:${roomId}`);
         
-        // Handle joining users
         voiceChannel.on('presence', { event: 'join' }, async ({ key, newPresences }) => {
           for (const presence of newPresences) {
-            // Skip if it's the current user
             if (presence.user_id === currentUserId) continue;
             
-            // Get user data
             const { data: userData } = await supabase
               .from('users')
               .select('username, tag')
@@ -238,7 +212,6 @@ if (typeof window !== 'undefined' && !window.voiceChannelStore) {
               
             if (!userData) continue;
             
-            // Add user to voice users list
             const newUser = {
               id: presence.user_id,
               username: userData.username,
@@ -251,40 +224,31 @@ if (typeof window !== 'undefined' && !window.voiceChannelStore) {
             
             store.voiceUsers.push(newUser);
             
-            // Initiate WebRTC connection to new user
             createPeerConnection(presence.user_id);
             
-            // Notify subscribers
             window.dispatchEvent(new CustomEvent('voiceStateUpdated'));
           }
         });
         
-        // Handle leaving users
         voiceChannel.on('presence', { event: 'leave' }, ({ key, leftPresences }) => {
           for (const presence of leftPresences) {
-            // Remove user from voice users list
             store.voiceUsers = store.voiceUsers.filter(user => user.id !== presence.user_id);
             
-            // Close peer connection
             if (store.peerConnections[presence.user_id]) {
               store.peerConnections[presence.user_id].close();
               delete store.peerConnections[presence.user_id];
             }
             
-            // Notify subscribers
             window.dispatchEvent(new CustomEvent('voiceStateUpdated'));
           }
         });
         
-        // Handle WebRTC signaling
         voiceChannel.on('broadcast', { event: 'webrtc' }, async (payload) => {
           const { type, from, to, data } = payload;
           
           if (to !== currentUserId) return;
           
-          // Fix type comparison issues by using string equality
-          if (type === 'offer') {
-            // Create peer connection if it doesn't exist
+          if (type === "offer") {
             if (!store.peerConnections[from]) {
               createPeerConnection(from);
             }
@@ -292,11 +256,9 @@ if (typeof window !== 'undefined' && !window.voiceChannelStore) {
             const pc = store.peerConnections[from];
             await pc.setRemoteDescription(new RTCSessionDescription(data));
             
-            // Create answer
             const answer = await pc.createAnswer();
             await pc.setLocalDescription(answer);
             
-            // Send answer
             voiceChannel.send({
               type: 'broadcast',
               event: 'webrtc',
@@ -309,14 +271,14 @@ if (typeof window !== 'undefined' && !window.voiceChannelStore) {
             });
           }
           
-          else if (type === 'answer') {
+          else if (type === "answer") {
             const pc = store.peerConnections[from];
             if (pc) {
               await pc.setRemoteDescription(new RTCSessionDescription(data));
             }
           }
           
-          else if (type === 'ice-candidate') {
+          else if (type === "ice-candidate") {
             const pc = store.peerConnections[from];
             if (pc) {
               await pc.addIceCandidate(new RTCIceCandidate(data));
@@ -324,7 +286,6 @@ if (typeof window !== 'undefined' && !window.voiceChannelStore) {
           }
         });
         
-        // Track current user's presence
         voiceChannel.track({
           user_id: currentUserId,
           is_muted: store.isMuted
@@ -332,7 +293,6 @@ if (typeof window !== 'undefined' && !window.voiceChannelStore) {
         
         await voiceChannel.subscribe();
         
-        // Function to create peer connection
         async function createPeerConnection(remoteUserId: string) {
           const pc = new RTCPeerConnection({
             iceServers: [
@@ -341,12 +301,10 @@ if (typeof window !== 'undefined' && !window.voiceChannelStore) {
             ]
           });
           
-          // Add local stream
           store.audioStream!.getTracks().forEach(track => {
             pc.addTrack(track, store.audioStream!);
           });
           
-          // Handle ICE candidates
           pc.onicecandidate = (event) => {
             if (event.candidate) {
               voiceChannel.send({
@@ -362,27 +320,21 @@ if (typeof window !== 'undefined' && !window.voiceChannelStore) {
             }
           };
           
-          // Handle remote stream
           pc.ontrack = (event) => {
-            // Create audio element for remote stream
             const audioEl = new Audio();
             audioEl.srcObject = event.streams[0];
             audioEl.autoplay = true;
             audioEl.dataset.userId = remoteUserId;
             
-            // Add reference to the audio element
             document.body.appendChild(audioEl);
             
-            // Clean up on track ended
             event.track.onended = () => {
               document.querySelectorAll(`audio[data-user-id="${remoteUserId}"]`).forEach(el => el.remove());
             };
           };
           
-          // Store peer connection
           store.peerConnections[remoteUserId] = pc;
           
-          // Create and send offer
           const offer = await pc.createOffer();
           await pc.setLocalDescription(offer);
           
@@ -407,19 +359,15 @@ if (typeof window !== 'undefined' && !window.voiceChannelStore) {
       }
     },
     
-    // Leave voice channel
     leaveVoiceChannel: () => {
       const currentUserId = localStorage.getItem('userId');
       if (!currentUserId) return;
       
       try {
-        // Skip Supabase operations if client is not initialized
         if (supabase) {
-          // Leave Supabase channel
           const voiceChannel = supabase.channel(`voice:${window.voiceChannelStore.roomId}`);
           voiceChannel.unsubscribe();
           
-          // Update user status in database
           supabase
             .from('users')
             .update({ 
@@ -429,46 +377,38 @@ if (typeof window !== 'undefined' && !window.voiceChannelStore) {
             })
             .eq('id', currentUserId)
             .then(() => {
-              // Remove all audio elements
               document.querySelectorAll('audio[data-user-id]').forEach(el => el.remove());
             });
         }
         
-        // Close all peer connections
         for (const userId in window.voiceChannelStore.peerConnections) {
           window.voiceChannelStore.peerConnections[userId].close();
         }
         
         window.voiceChannelStore.peerConnections = {};
-        
       } catch (error) {
         console.error('Error leaving voice channel:', error);
       }
     },
     
-    // Toggle mute function
     toggleMute: () => {
       const store = window.voiceChannelStore;
       const newMutedState = !store.isMuted;
       
       store.isMuted = newMutedState;
       
-      // Apply to audio tracks
       if (store.audioStream) {
         store.audioStream.getAudioTracks().forEach(track => {
           track.enabled = !newMutedState;
         });
       }
       
-      // Update user state
       store.voiceUsers = store.voiceUsers.map(user => 
         user.id === localStorage.getItem('userId')
           ? { ...user, isMuted: newMutedState, isSpeaking: false } 
           : user
       );
       
-      // Update mute state in signaling channel
-      const currentUserId = localStorage.getItem('userId');
       if (currentUserId) {
         const voiceChannel = supabase.channel(`voice:${store.roomId}`);
         voiceChannel.track({
@@ -477,11 +417,9 @@ if (typeof window !== 'undefined' && !window.voiceChannelStore) {
         });
       }
       
-      // Notify subscribers
       window.dispatchEvent(new CustomEvent('voiceStateUpdated'));
     },
     
-    // Stop screen share
     stopScreenShare: () => {
       const store = window.voiceChannelStore;
       
@@ -490,34 +428,28 @@ if (typeof window !== 'undefined' && !window.voiceChannelStore) {
         store.screenShareStream = null;
         store.isScreenSharing = false;
         
-        // Notify subscribers
         window.dispatchEvent(new CustomEvent('voiceStateUpdated'));
       }
     },
     
-    // Start screen share
     startScreenShare: async () => {
       const store = window.voiceChannelStore;
       
       try {
-        // Request screen share
         const stream = await navigator.mediaDevices.getDisplayMedia({ 
           video: true,
-          audio: false // Important: don't request audio to avoid conflicts
+          audio: false
         });
         
-        // Update state
         store.screenShareStream = stream;
         store.isScreenSharing = true;
         
-        // Setup automatic cleanup when the user stops sharing
         stream.getVideoTracks()[0].onended = () => {
           store.screenShareStream = null;
           store.isScreenSharing = false;
           window.dispatchEvent(new CustomEvent('voiceStateUpdated'));
         };
         
-        // Notify subscribers
         window.dispatchEvent(new CustomEvent('voiceStateUpdated'));
         return true;
       } catch (error) {
@@ -539,7 +471,6 @@ const CURRENT_USER: VoiceUserType = {
 };
 
 const VoicePage = () => {
-  // Use the global store for state
   const [voiceUsers, setVoiceUsers] = useState<VoiceUserType[]>(() => {
     return window.voiceChannelStore.voiceUsers.length > 0 
       ? window.voiceChannelStore.voiceUsers 
@@ -563,7 +494,6 @@ const VoicePage = () => {
   const { toast } = useToast();
   const navigate = useNavigate();
   
-  // Проверяем авторизацию
   useEffect(() => {
     const userId = localStorage.getItem('userId');
     const username = localStorage.getItem('username');
@@ -573,7 +503,6 @@ const VoicePage = () => {
     }
   }, [navigate]);
   
-  // Update global store when state changes
   useEffect(() => {
     const store = window.voiceChannelStore;
     store.isConnected = isConnected;
@@ -598,7 +527,6 @@ const VoicePage = () => {
     isMuted
   ]);
   
-  // Keep track of component mount state
   const isMountedRef = useRef(true);
   useEffect(() => {
     isMountedRef.current = true;
@@ -607,7 +535,6 @@ const VoicePage = () => {
     };
   }, []);
 
-  // Update local state when global store changes
   useEffect(() => {
     const handleVoiceStateUpdated = () => {
       if (!isMountedRef.current) return;
@@ -622,7 +549,6 @@ const VoicePage = () => {
       setVoiceUsers(store.voiceUsers);
       setIsMuted(store.isMuted);
       
-      // If connected and we have a stream but no audio analysis, restart it
       if (store.isConnected && store.audioStream && !animationFrameRef.current) {
         setupAudioAnalysis(store.audioStream);
       }
@@ -634,7 +560,6 @@ const VoicePage = () => {
     };
   }, []);
   
-  // Update username when it changes
   useEffect(() => {
     const handleUsernameUpdate = () => {
       const username = localStorage.getItem('username') || 'User';
@@ -647,7 +572,6 @@ const VoicePage = () => {
         )
       );
       
-      // Update global store too
       window.voiceChannelStore.voiceUsers = window.voiceChannelStore.voiceUsers.map(user => 
         user.id === 'currentUser' 
           ? { ...user, username } 
@@ -659,11 +583,9 @@ const VoicePage = () => {
     return () => window.removeEventListener('usernameUpdated', handleUsernameUpdate);
   }, []);
   
-  // Handle disconnect
   const handleDisconnect = () => {
     stopAudioAnalysis();
     
-    // Use the global disconnect function
     window.voiceChannelStore.disconnect();
     
     toast({
@@ -671,7 +593,6 @@ const VoicePage = () => {
     });
   };
 
-  // Stop audio analysis
   const stopAudioAnalysis = () => {
     if (animationFrameRef.current) {
       cancelAnimationFrame(animationFrameRef.current);
@@ -679,191 +600,68 @@ const VoicePage = () => {
     }
   };
 
-  // Setup voice connection
-  useEffect(() => {
-    // If we're already connected, just ensure audio analysis is running
-    if (isConnected && audioStream) {
-      if (!animationFrameRef.current) {
-        setupAudioAnalysis(audioStream);
-      }
-      return;
-    }
-    
-    // If we're already connecting, don't do anything
-    if (isConnecting) return;
-    
-    // Try to reconnect with the store's reconnect function
-    const connect = async () => {
-      setIsConnecting(true);
-      
-      toast({
-        title: "Подключение к голосовому чату",
-        description: "Пожалуйста, подождите...",
-      });
-      
-      const success = await window.voiceChannelStore.reconnect();
-      
-      if (success) {
-        toast({
-          title: "Подключено к голосовому чату",
-          description: "Вы можете начать общение",
-        });
-        
-        // Ensure audio analysis is running
-        if (window.voiceChannelStore.audioStream) {
-          setupAudioAnalysis(window.voiceChannelStore.audioStream);
-        }
-      } else {
-        toast({
-          title: "Ошибка подключения",
-          description: "Не удалось подключиться к голосовому чату",
-          variant: "destructive",
-        });
-      }
-    };
-    
-    connect();
-  }, []);
-
-  // Handle visibility change to maintain functionality when tab is not visible
-  useEffect(() => {
-    const handleVisibilityChange = () => {
-      if (!isMountedRef.current) return;
-      
-      if (document.visibilityState === 'visible') {
-        // Only recreate audio analysis if we're connected but it's not active
-        if (isConnected && audioStream && !animationFrameRef.current) {
-          setupAudioAnalysis(audioStream);
-        }
-      } else {
-        // When tab is hidden, pause the analysis to save resources
-        stopAudioAnalysis();
-      }
-    };
-
-    // Add visibility change listener
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-
-    // Handle focus/blur
-    window.addEventListener('focus', () => {
-      if (!isMountedRef.current) return;
-      if (isConnected && audioStream && !animationFrameRef.current) {
-        setupAudioAnalysis(audioStream);
-      }
-    });
-
-    window.addEventListener('blur', () => {
-      if (!isMountedRef.current) return;
-      stopAudioAnalysis();
-    });
-
-    return () => {
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
-      window.removeEventListener('focus', () => {});
-      window.removeEventListener('blur', () => {});
-    };
-  }, [isConnected, audioStream]);
-
-  // Listen for noise suppression settings changes
-  useEffect(() => {
-    const handleSettingsChange = () => {
-      if (!isMountedRef.current) return;
-      
-      if (isConnected && audioStream) {
-        // Re-setup audio analysis with new settings
-        setupAudioAnalysis(audioStream);
-      }
-    };
-
-    window.addEventListener('voiceSettingsUpdated', handleSettingsChange);
-    return () => window.removeEventListener('voiceSettingsUpdated', handleSettingsChange);
-  }, [isConnected, audioStream]);
-
-  // Setup audio analysis with proper error handling
   const setupAudioAnalysis = (stream: MediaStream) => {
-    // Stop any existing audio analysis
     stopAudioAnalysis();
     
-    // Make sure we have a valid stream with audio tracks
     if (!stream || stream.getAudioTracks().length === 0) {
       console.error('No audio tracks in stream');
       return;
     }
     
     try {
-      // If no audio context exists or it's closed, create a new one
       if (!audioContextRef.current || audioContextRef.current.state === 'closed') {
         const audioContext = new AudioContext();
         audioContextRef.current = audioContext;
         window.voiceChannelStore.audioContext = audioContext;
       } else if (audioContextRef.current.state === 'suspended') {
-        // Resume if suspended
         audioContextRef.current.resume().catch(err => {
           console.error('Failed to resume audio context:', err);
         });
       }
       
-      // Create new analyser or reuse existing one
       let analyser: AnalyserNode;
       analyser = audioContextRef.current.createAnalyser();
       analyserRef.current = analyser;
       window.voiceChannelStore.analyser = analyser;
       analyser.fftSize = 256;
       
-      // Create new source or disconnect and reuse existing one
-      if (audioSourceRef.current) {
-        try {
-          audioSourceRef.current.disconnect();
-        } catch (error) {
-          console.error('Failed to disconnect audio source:', error);
-        }
-      }
-      
       let source: MediaStreamAudioSourceNode;
       source = audioContextRef.current.createMediaStreamSource(stream);
       audioSourceRef.current = source;
       window.voiceChannelStore.audioSource = source;
       
-      // Apply noise suppression settings if enabled
       const noiseSuppressionSettings = localStorage.getItem('noiseSuppression');
       try {
         if (noiseSuppressionSettings) {
           const { enabled, threshold } = JSON.parse(noiseSuppressionSettings);
           
           if (enabled) {
-            // Create and configure a dynamic compressor node for noise suppression
             const compressor = audioContextRef.current.createDynamicsCompressor();
-            compressor.threshold.value = -80 + threshold * 0.8; // Convert 0-100 scale to appropriate threshold
+            compressor.threshold.value = -80 + threshold * 0.8;
             compressor.knee.value = 40;
             compressor.ratio.value = 12;
             compressor.attack.value = 0;
             compressor.release.value = 0.25;
             
-            // Connect source -> compressor -> analyser
             source.connect(compressor);
             compressor.connect(analyser);
           } else {
-            // Connect source directly to analyser
             source.connect(analyser);
           }
         } else {
-          // Connect source directly to analyser if no settings
           source.connect(analyser);
         }
       } catch (error) {
         console.error('Failed to apply noise suppression:', error);
-        // Fallback to direct connection
         source.connect(analyser);
       }
       
-      // Start analyzing microphone level
       analyzeMicrophoneLevel();
     } catch (error) {
       console.error('Error setting up audio analysis:', error);
     }
   };
 
-  // Analyze microphone level with improved error handling
   const analyzeMicrophoneLevel = () => {
     if (!analyserRef.current || !isMountedRef.current) return;
     
@@ -892,18 +690,15 @@ const VoicePage = () => {
           )
         );
         
-        // Update global store
         window.voiceChannelStore.voiceUsers = window.voiceChannelStore.voiceUsers.map(user => 
           user.id === localStorage.getItem('userId')
             ? { ...user, isSpeaking } 
             : user
         );
         
-        // Continue the animation loop
         animationFrameRef.current = requestAnimationFrame(updateLevel);
       } catch (error) {
         console.error('Error analyzing microphone level:', error);
-        // Try to restart analysis on error
         animationFrameRef.current = requestAnimationFrame(updateLevel);
       }
     };
@@ -911,7 +706,6 @@ const VoicePage = () => {
     updateLevel();
   };
 
-  // Update voice users
   const updateVoiceUser = (updatedUser: VoiceUserType) => {
     setVoiceUsers((prevUsers) =>
       prevUsers.map(user =>
@@ -919,28 +713,23 @@ const VoicePage = () => {
       )
     );
     
-    // Update global store
     window.voiceChannelStore.voiceUsers = window.voiceChannelStore.voiceUsers.map(user => 
       user.id === updatedUser.id ? updatedUser : user
     );
     
-    // Notify subscribers
     window.dispatchEvent(new CustomEvent('voiceStateUpdated'));
   };
 
-  // Toggle mute
   const handleToggleMute = (userId: string) => {
     if (userId !== localStorage.getItem('userId')) return;
     
-    // Use the global toggleMute function
     window.voiceChannelStore.toggleMute();
     
     toast({
-      title: !isMuted ? "Микрофон выключен" : "Микрофон включен",
+      title: !isMuted ? "Микрофон выключено" : "Микрофон включен",
     });
   };
 
-  // Toggle local mute
   const handleToggleLocalMute = (userId: string) => {
     if (userId === localStorage.getItem('userId')) return;
     
@@ -961,7 +750,6 @@ const VoicePage = () => {
     });
   };
 
-  // Handle volume change
   const handleVolumeChange = (userId: string, volume: number) => {
     const user = voiceUsers.find(u => u.id === userId);
     if (!user) return;
@@ -972,10 +760,8 @@ const VoicePage = () => {
     });
   };
 
-  // Handle screen sharing with improved error handling
   const handleScreenShare = async () => {
     if (isScreenSharing) {
-      // Use the global stopScreenShare function
       window.voiceChannelStore.stopScreenShare();
       
       toast({
@@ -989,7 +775,6 @@ const VoicePage = () => {
       description: 'Разрешите доступ в браузере',
     });
     
-    // Use the global startScreenShare function
     const success = await window.voiceChannelStore.startScreenShare();
     
     if (success) {
