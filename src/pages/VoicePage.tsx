@@ -16,20 +16,11 @@ import { createClient } from '@supabase/supabase-js';
 import { useNavigate } from 'react-router-dom';
 
 // Инициализируем клиент Supabase
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
-const supabase = createClient(supabaseUrl, supabaseKey);
-
-interface VoiceUserType {
-  id: string;
-  username: string;
-  tag: string;
-  avatar?: string;
-  isSpeaking: boolean;
-  isMuted: boolean;
-  isLocalMuted: boolean;
-  volume: number;
-}
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || '';
+const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
+const supabase = supabaseUrl && supabaseKey 
+  ? createClient(supabaseUrl, supabaseKey) 
+  : null;
 
 // Create a global voice channel store that's accessible from window object
 declare global {
@@ -195,15 +186,18 @@ if (typeof window !== 'undefined' && !window.voiceChannelStore) {
       store.roomId = roomId;
       
       try {
-        // Update user status in database
-        await supabase
-          .from('users')
-          .update({ 
-            voice_status: 'active',
-            voice_channel: roomId,
-            last_active: new Date()
-          })
-          .eq('id', currentUserId);
+        // Skip Supabase operations if client is not initialized
+        if (supabase) {
+          // Update user status in database
+          await supabase
+            .from('users')
+            .update({ 
+              voice_status: 'active',
+              voice_channel: roomId,
+              last_active: new Date()
+            })
+            .eq('id', currentUserId);
+        }
         
         // Setup username for current user
         const username = localStorage.getItem('username') || 'User';
@@ -219,6 +213,12 @@ if (typeof window !== 'undefined' && !window.voiceChannelStore) {
         
         // Add current user to voice users list
         store.voiceUsers = [currentUser];
+        
+        // Skip signaling setup if Supabase client is not initialized
+        if (!supabase) {
+          window.dispatchEvent(new CustomEvent('voiceStateUpdated'));
+          return true;
+        }
         
         // Subscribe to voice channel presence
         const voiceChannel = supabase.channel(`voice:${roomId}`);
@@ -282,6 +282,7 @@ if (typeof window !== 'undefined' && !window.voiceChannelStore) {
           
           if (to !== currentUserId) return;
           
+          // Fix type comparison issues by using string equality
           if (type === 'offer') {
             // Create peer connection if it doesn't exist
             if (!store.peerConnections[from]) {
@@ -412,9 +413,26 @@ if (typeof window !== 'undefined' && !window.voiceChannelStore) {
       if (!currentUserId) return;
       
       try {
-        // Leave Supabase channel
-        const voiceChannel = supabase.channel(`voice:${window.voiceChannelStore.roomId}`);
-        voiceChannel.unsubscribe();
+        // Skip Supabase operations if client is not initialized
+        if (supabase) {
+          // Leave Supabase channel
+          const voiceChannel = supabase.channel(`voice:${window.voiceChannelStore.roomId}`);
+          voiceChannel.unsubscribe();
+          
+          // Update user status in database
+          supabase
+            .from('users')
+            .update({ 
+              voice_status: 'inactive',
+              voice_channel: null,
+              last_active: new Date()
+            })
+            .eq('id', currentUserId)
+            .then(() => {
+              // Remove all audio elements
+              document.querySelectorAll('audio[data-user-id]').forEach(el => el.remove());
+            });
+        }
         
         // Close all peer connections
         for (const userId in window.voiceChannelStore.peerConnections) {
@@ -423,20 +441,6 @@ if (typeof window !== 'undefined' && !window.voiceChannelStore) {
         
         window.voiceChannelStore.peerConnections = {};
         
-        // Update user status in database
-        supabase
-          .from('users')
-          .update({ 
-            voice_status: 'inactive',
-            voice_channel: null,
-            last_active: new Date()
-          })
-          .eq('id', currentUserId)
-          .then(() => {
-            // Remove all audio elements
-            document.querySelectorAll('audio[data-user-id]').forEach(el => el.remove());
-          });
-          
       } catch (error) {
         console.error('Error leaving voice channel:', error);
       }

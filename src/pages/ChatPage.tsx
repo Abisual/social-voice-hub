@@ -14,6 +14,19 @@ const supabase = supabaseUrl && supabaseKey
   ? createClient(supabaseUrl, supabaseKey) 
   : null;
 
+// Define the message structure from Supabase
+interface SupabaseMessage {
+  id: string;
+  content: string;
+  created_at: string;
+  user_id: string;
+  users: {
+    id: string;
+    username: string;
+    tag: string;
+  };
+}
+
 const ChatPage = () => {
   const [messages, setMessages] = useState<ChatMessageProps[]>([]);
   const [loading, setIsLoading] = useState(false);
@@ -75,14 +88,13 @@ const ChatPage = () => {
 
         if (data) {
           // Преобразуем данные из БД в формат наших компонентов
-          const formattedMessages: ChatMessageProps[] = data.map(msg => ({
+          const formattedMessages: ChatMessageProps[] = data.map((msg: SupabaseMessage) => ({
             id: msg.id,
             content: msg.content,
             sender: {
               id: msg.user_id,
-              // Fix: Correctly access the nested object's properties
-              username: msg.users ? msg.users.username : 'Unknown User',
-              tag: msg.users ? msg.users.tag : '#0000',
+              username: msg.users.username || 'Unknown User',
+              tag: msg.users.tag || '#0000',
             },
             timestamp: new Date(msg.created_at),
           }));
