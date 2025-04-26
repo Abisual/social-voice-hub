@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef } from 'react';
 import VoiceUser from '@/components/voice/VoiceUser';
 import { Button } from '@/components/ui/button';
@@ -25,6 +24,11 @@ const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 const supabase = supabaseUrl && supabaseKey 
   ? createClient(supabaseUrl, supabaseKey) 
   : null;
+
+// Выводим информацию о подключении к Supabase для отладки
+console.log('Supabase URL:', supabaseUrl);
+console.log('Supabase Key exists:', !!supabaseKey);
+console.log('Supabase client initialized:', !!supabase);
 
 // Create a global voice channel store that's accessible from window object
 declare global {
