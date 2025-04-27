@@ -11,16 +11,35 @@ interface ScreenShareViewProps {
 const ScreenShareView: React.FC<ScreenShareViewProps> = ({ stream, isActive }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [isPlaying, setIsPlaying] = useState(false);
   
   useEffect(() => {
     if (videoRef.current && stream) {
       // Only set the video source, don't touch audio
       videoRef.current.srcObject = stream;
+      
+      // Check if video is playing
+      const checkVideoPlaying = () => {
+        if (videoRef.current) {
+          setIsPlaying(!videoRef.current.paused);
+        }
+      };
+      
+      videoRef.current.addEventListener('play', checkVideoPlaying);
+      videoRef.current.addEventListener('pause', checkVideoPlaying);
+      
+      return () => {
+        if (videoRef.current) {
+          videoRef.current.removeEventListener('play', checkVideoPlaying);
+          videoRef.current.removeEventListener('pause', checkVideoPlaying);
+        }
+      };
     }
     
     return () => {
       if (videoRef.current) {
         videoRef.current.srcObject = null;
+        setIsPlaying(false);
       }
     };
   }, [stream]);
@@ -78,8 +97,13 @@ const ScreenShareView: React.FC<ScreenShareViewProps> = ({ stream, isActive }) =
         playsInline
         className="w-full h-auto"
       />
-      <div className="p-2 bg-card/80 backdrop-blur-sm text-xs font-medium">
-        Screen sharing active
+      <div className="p-2 bg-card/80 backdrop-blur-sm flex items-center justify-between">
+        <span className="text-xs font-medium">
+          {isPlaying ? 'Демонстрация экрана активна' : 'Загрузка демонстрации...'}
+        </span>
+        <span className="text-xs text-primary animate-pulse">
+          Live
+        </span>
       </div>
     </div>
   );

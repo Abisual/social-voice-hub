@@ -151,12 +151,15 @@ const ChatPage = () => {
             filter: 'channel=eq.general'
           }, 
           async (payload) => {
+            console.log('New message received:', payload);
             // Получаем информацию о пользователе
             const { data: userData } = await supabase
               .from('users')
               .select('username, tag')
               .eq('id', payload.new.user_id)
               .single();
+              
+            console.log('User data for new message:', userData);
               
             // Добавляем сообщение в список
             const newMessage: ChatMessageProps = {
@@ -174,6 +177,8 @@ const ChatPage = () => {
           }
         )
         .subscribe();
+        
+      console.log('Subscribed to channel public:messages');
     }
 
     return () => {
@@ -230,14 +235,23 @@ const ChatPage = () => {
         return;
       }
       
+      console.log('Sending message to Supabase:', {
+        user_id: currentUserId,
+        content: content,
+        channel: 'general',
+      });
+      
       // Отправляем сообщение в Supabase
-      const { error } = await supabase
+      const { error, data } = await supabase
         .from('messages')
         .insert([{
           user_id: currentUserId,
           content: content,
           channel: 'general',
-        }]);
+        }])
+        .select();
+        
+      console.log('Message sent response:', { error, data });
         
       if (error) throw error;
       
