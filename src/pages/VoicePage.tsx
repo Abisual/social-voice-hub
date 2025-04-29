@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import VoiceUser from '@/components/voice/VoiceUser';
 import { Button } from '@/components/ui/button';
@@ -255,6 +256,7 @@ if (typeof window !== 'undefined' && !window.voiceChannelStore) {
           
           if (to !== currentUserId) return;
           
+          // Fix the comparison by checking the 'type' property directly
           if (type === "offer") {
             if (!store.peerConnections[from]) {
               createPeerConnection(from);
@@ -278,6 +280,7 @@ if (typeof window !== 'undefined' && !window.voiceChannelStore) {
             });
           }
           
+          // Fix the comparison
           else if (type === "answer") {
             const pc = store.peerConnections[from];
             if (pc) {
@@ -285,6 +288,7 @@ if (typeof window !== 'undefined' && !window.voiceChannelStore) {
             }
           }
           
+          // Fix the comparison
           else if (type === "ice-candidate") {
             const pc = store.peerConnections[from];
             if (pc) {
