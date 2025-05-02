@@ -255,7 +255,7 @@ if (typeof window !== 'undefined' && !window.voiceChannelStore) {
           
           if (to !== currentUserId) return;
           
-          if (type === 'offer') {
+          if (type === 'offer' as string) {
             if (!store.peerConnections[from]) {
               createPeerConnection(from);
             }
@@ -277,13 +277,13 @@ if (typeof window !== 'undefined' && !window.voiceChannelStore) {
               }
             });
           }
-          else if (type === 'answer') {
+          else if (type === 'answer' as string) {
             const pc = store.peerConnections[from];
             if (pc) {
               await pc.setRemoteDescription(new RTCSessionDescription(data));
             }
           }
-          else if (type === 'ice-candidate') {
+          else if (type === 'ice-candidate' as string) {
             const pc = store.peerConnections[from];
             if (pc) {
               await pc.addIceCandidate(new RTCIceCandidate(data));
